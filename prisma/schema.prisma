@@ -69,6 +69,8 @@ model Operation {
   tasks           Task[]
   journeySteps    JourneyStep[]
   timelineEvents  TimelineEvent[]
+  emailsInbound  EmailInbound[]
+  emailDrafts    EmailDraft[]
   
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -142,3 +144,51 @@ model TimelineEvent {
   timestamp     DateTime @default(now())
   source        String?
 }
+// EMAILS RECIBIDOS
+model EmailInbound {
+  id            String   @id @default(cuid())
+  operationId   String?
+  operation     Operation? @relation(fields: [operationId], references: [id], onDelete: SetNull)
+  
+  from          String
+  to            String
+  subject       String
+  body          String
+  
+  // Metadata de SendGrid
+  sendgridEventId String?
+  
+  status        String   @default("RECEIVED") // RECEIVED, PROCESSED
+  processedAt   DateTime?
+  
+  timestamp     DateTime @default(now())
+  
+  @@index([operationId])
+  @@index([timestamp])
+}
+
+// EMAIL DRAFTS (sugeridos por AI)
+model EmailDraft {
+  id            String   @id @default(cuid())
+  operationId   String
+  operation     Operation @relation(fields: [operationId], references: [id], onDelete: Cascade)
+  taskId        String?
+  
+  to            String
+  subject       String
+  body          String
+  
+  status        String   @default("DRAFT") // DRAFT, APPROVED, SENT, REJECTED
+  
+  // Metadata
+  aiGenerated   Boolean  @default(true)
+  aiReasoning   String?
+  
+  sentAt        DateTime?
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@index([operationId])
+  @@index([status])
+}	

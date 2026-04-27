@@ -380,3 +380,94 @@ app.listen(PORT, () => {
 })
 
 export default app
+
+// ============ EMAIL ENDPOINTS ============
+
+// Webhook de SendGrid - Recibir emails
+app.post('/api/emails/webhook', async (req: Request, res: Response) => {
+  try {
+    const { from, to, subject, text: body } = req.body
+
+    if (!from || !to || !subject || !body) {
+      return res.status(400).json({ error: 'Missing required fields' })
+    }
+
+    // Intentar encontrar la operación por subject o body
+    const operations = await prisma.operation.findMany({ take: 1 })
+    const operationId = operations[0]?.id
+
+    // Procesar email
+    const analysis = await processEmailAndUpdateOperation(
+      { from, to, subject, body },
+      operationId
+    )
+
+    res.json({
+      success: true,
+      analysis,
+      operationId,
+    })
+  } catch (error) {
+    console.error('Webhook error:', error)
+    res.status(500).json({ error: 'Failed to process webhook' })
+  }
+})
+
+// Obtener drafts de una operación
+app.get('/api/emails/drafts/:operationId', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const { operationId } = req.params
+
+    const drafts = await prisma.emailDraft.findMany({
+      where: { operationId },
+      orderBy: { createdAt: 'desc' },
+    })
+
+    res.json(drafts)
+  } catch (error) {
+    console.error('Error fetching drafts:', error)
+    res.status(500).json({ error: 'Failed to fetch drafts' })
+  }
+})
+
+// Enviar draft aprobado
+app.post('/api/emails/send', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const { draftId } = req.body
+
+    const draft = await prisma.emailDraft.findUnique({
+      where: { id: draftId },
+      include: { operation: true },
+    })
+
+    if (!draft) {
+      return res.status(404).json({ error: 'Draft not found' })
+    }
+
+    // Aquí iría la lógica de SendGrid para enviar el email
+    // Por ahora, solo marcamos como enviado
+    const sent = await prisma.emailDraft.update({
+      where: { id: draftId },
+      data: {
+        status: 'SENT',
+        sentAt: new Date(),
+      },
+    })
+
+    // Agregar a timeline
+    await prisma.timelineEvent.create({
+      data: {
+        operationId: draft.operationId,
+        title: `Email enviado: ${draft.subject}`,
+        eventType: 'EMAIL_SENT',
+        description: `Para: ${draft.to}`,
+        source: 'EMAIL',
+      },
+    })
+
+    res.json({ success: true, sent })
+  } catch (error) {
+    console.error('Error sending email:', error)
+    res.status(500).json({ error: 'Failed to send email' })
+  }
+})

@@ -1,260 +1,126 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { PrismaClient } from '@prisma/client'
 
+const client = new Anthropic()
 const prisma = new PrismaClient()
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-})
 
-interface EmailAnalysis {
-  emailType: 'QUOTE' | 'BOOKING_CONFIRMATION' | 'SHIPMENT_STATUS' | 'DOCUMENTATION' | 'PAYMENT_REQUEST' | 'CUSTOMS_NOTIFICATION' | 'OTHER'
-  operationCode?: string
-  containerNumber?: string
-  confidence: number
-  extractedData: {
-    weight?: number
-    origin?: string
-    destination?: string
-    rate?: number
-    eta?: string
-    shippingLine?: string
-    status?: string
-    urgency?: 'LOW' | 'NORMAL' | 'HIGH' | 'CRITICAL'
-    nextStep?: string
+interface EmailAnalysisResult {
+  operationCode: string | null
+  containerNumber: string | null
+  suggestedTasks: string[]
+  urgencyLevel: 'LOW' | 'NORMAL' | 'HIGH' | 'CRITICAL'
+  draftEmail: {
+    to: string
+    subject: string
+    body: string
   }
-  suggestedTasks: Array<{
-    title: string
-    description: string
-    priority: 'LOW' | 'NORMAL' | 'HIGH' | 'CRITICAL'
-    estimatedCost?: number
-  }>
-  updatesSuggested: {
-    operationStatus?: string
-    currentStage?: string
-    notes?: string
-  }
+  reasoning: string
 }
 
-export async function analyzeEmailWithClaude(
-  emailSubject: string,
-  emailBody: string,
-  fromEmail: string,
-  toEmail: string
-): Promise<EmailAnalysis> {
-  const prompt = `Analiza este email de freight forwarding y extrae información.
-
-EMAIL:
-De: ${fromEmail}
-Para: ${toEmail}
-Asunto: ${emailSubject}
-Body:
-${emailBody}
-
-Responde en JSON con esta estructura:
-{
-  "emailType": "QUOTE|BOOKING_CONFIRMATION|SHIPMENT_STATUS|DOCUMENTATION|PAYMENT_REQUEST|CUSTOMS_NOTIFICATION|OTHER",
-  "operationCode": "código de operación si está mencionado",
-  "containerNumber": "número de container si está mencionado",
-  "confidence": 0.0 a 1.0,
-  "extractedData": {
-    "weight": número en kg si se menciona,
-    "origin": puerto/ciudad origen,
-    "destination": puerto/ciudad destino,
-    "rate": tarifa si se menciona,
-    "eta": fecha estimada de arribo,
-    "shippingLine": línea naviera,
-    "status": estado del shipment (BOOKING|IN_TRANSIT|CUSTOMS|DELIVERED),
-    "urgency": "LOW|NORMAL|HIGH|CRITICAL",
-    "nextStep": próximo paso sugerido
+export async function processEmailAndUpdateOperation(
+  inboundEmail: {
+    from: string
+    to: string
+    subject: string
+    body: string
   },
-  "suggestedTasks": [
-    {
-      "title": "título de tarea",
-      "description": "descripción",
-      "priority": "LOW|NORMAL|HIGH|CRITICAL",
-      "estimatedCost": número estimado
-    }
-  ],
-  "updatesSuggested": {
-    "operationStatus": "nuevo status si aplica",
-    "currentStage": "nuevo stage si aplica",
-    "notes": "notas a agregar"
-  }
-}
-
-Sé específico y preciso. Si no hay información, omite el campo.`
-
+  operationId?: string
+): Promise<EmailAnalysisResult> {
   try {
-    const message = await anthropic.messages.create({
+    // Llamar a Claude para analizar el email
+    const response = await client.messages.create({
       model: 'claude-opus-4-6',
-      max_tokens: 1024,
+      max_tokens: 2000,
       messages: [
         {
           role: 'user',
-          content: prompt,
+          content: `You are an expert freight forwarding AI assistant. Analyze this incoming email and provide structured guidance.
+
+INCOMING EMAIL:
+From: ${inboundEmail.from}
+To: ${inboundEmail.to}
+Subject: ${inboundEmail.subject}
+Body: ${inboundEmail.body}
+
+Please respond with a JSON object containing:
+1. operationCode: Extract the operation code if present (e.g., "OP-2024-001")
+2. containerNumber: Extract container number if present
+3. suggestedTasks: Array of 2-3 actionable tasks the freight forwarder should do
+4. urgencyLevel: Set to LOW, NORMAL, HIGH, or CRITICAL based on the email content
+5. draftEmail: Object with "to", "subject", "body" - a professional response email to send
+6. reasoning: Brief explanation of your analysis
+
+Respond ONLY with the JSON object, no markdown or extra text.`,
         },
       ],
     })
 
-    const responseText =
-      message.content[0].type === 'text' ? message.content[0].text : ''
-
-    // Extraer JSON de la respuesta
-    const jsonMatch = responseText.match(/\{[\s\S]*\}/)
-    if (!jsonMatch) {
-      throw new Error('No se pudo extraer JSON de la respuesta')
+    // Extraer el contenido de la respuesta
+    const content = response.content[0]
+    if (content.type !== 'text') {
+      throw new Error('Unexpected response type from Claude')
     }
 
-    const analysis = JSON.parse(jsonMatch[0]) as EmailAnalysis
-    return analysis
-  } catch (error) {
-    console.error('Error analyzing email with Claude:', error)
-    throw error
-  }
-}
+    const analysis = JSON.parse(content.text) as EmailAnalysisResult
 
-export async function processEmailAndUpdateOperation(
-  emailSubject: string,
-  emailBody: string,
-  fromEmail: string,
-  toEmail: string,
-  userId: string
-): Promise<{ success: boolean; operationId?: string; message: string }> {
-  try {
-    // Analizar email con Claude
-    const analysis = await analyzeEmailWithClaude(emailSubject, emailBody, fromEmail, toEmail)
-
-    console.log('Email analysis:', analysis)
-
-    // Buscar operación por código o container
-    let operation = null
-
-    if (analysis.operationCode) {
-      operation = await prisma.operation.findFirst({
-        where: {
-          userId,
-          operationCode: {
-            contains: analysis.operationCode,
-            mode: 'insensitive',
-          },
+    // Si tenemos operationId, actualizamos la operación
+    if (operationId) {
+      // Crear evento en timeline
+      await prisma.timelineEvent.create({
+        data: {
+          operationId,
+          title: `Email recibido: ${inboundEmail.subject}`,
+          eventType: 'EMAIL_RECEIVED',
+          description: `De: ${inboundEmail.from}`,
+          source: 'EMAIL',
         },
       })
-    }
 
-    if (!operation && analysis.containerNumber) {
-      operation = await prisma.operation.findFirst({
-        where: {
-          userId,
-          containerNumber: {
-            contains: analysis.containerNumber,
-            mode: 'insensitive',
-          },
-        },
-      })
-    }
-
-    // Si no encuentra operación exacta, busca por origen/destino como fallback
-    if (!operation && analysis.extractedData.origin && analysis.extractedData.destination) {
-      operation = await prisma.operation.findFirst({
-        where: {
-          userId,
-          originPort: {
-            contains: analysis.extractedData.origin,
-            mode: 'insensitive',
-          },
-          destinationPort: {
-            contains: analysis.extractedData.destination,
-            mode: 'insensitive',
-          },
-        },
-        orderBy: { createdAt: 'desc' },
-      })
-    }
-
-    if (!operation) {
-      return {
-        success: false,
-        message: `No se encontró operación para este email. Se requiere código de operación o container en el email.`,
-      }
-    }
-
-    // Actualizar operación si hay updates sugeridos
-    if (analysis.updatesSuggested) {
-      const updateData: any = {}
-      if (analysis.updatesSuggested.operationStatus) {
-        updateData.status = analysis.updatesSuggested.operationStatus
-      }
-      if (analysis.updatesSuggested.currentStage) {
-        updateData.currentStage = analysis.updatesSuggested.currentStage
-      }
-      if (analysis.updatesSuggested.notes) {
-        updateData.notes = (operation.notes || '') + '\n' + analysis.updatesSuggested.notes
-      }
-
-      if (Object.keys(updateData).length > 0) {
-        await prisma.operation.update({
-          where: { id: operation.id },
-          data: updateData,
-        })
-      }
-    }
-
-    // Actualizar journey steps si se menciona status
-    if (analysis.extractedData.status) {
-      const statusMap: { [key: string]: { stepName: string; stepStatus: string } } = {
-        BOOKING: { stepName: 'Booking', stepStatus: 'COMPLETED' },
-        IN_TRANSIT: { stepName: 'En océano', stepStatus: 'CURRENT' },
-        CUSTOMS: { stepName: 'Aduanaje', stepStatus: 'CURRENT' },
-        DELIVERED: { stepName: 'Entrega', stepStatus: 'COMPLETED' },
-      }
-
-      const mapping = statusMap[analysis.extractedData.status]
-      if (mapping) {
-        await prisma.journeyStep.updateMany({
-          where: {
-            operationId: operation.id,
-            stepName: mapping.stepName,
-          },
+      // Crear tasks sugeridas
+      for (const taskDescription of analysis.suggestedTasks) {
+        await prisma.task.create({
           data: {
-            status: mapping.stepStatus,
+            operationId,
+            userId: 'demo-user', // En producción, sería del usuario actual
+            title: taskDescription.split('\n')[0].substring(0, 100),
+            description: taskDescription,
+            priority: analysis.urgencyLevel === 'CRITICAL' ? 'CRITICAL' : analysis.urgencyLevel === 'HIGH' ? 'HIGH' : 'NORMAL',
+            status: 'PENDING',
+            createdByAi: true,
+            aiConfidence: 0.85,
+            aiReasoning: analysis.reasoning,
           },
         })
       }
-    }
 
-    // Crear timeline event para el email
-    await prisma.timelineEvent.create({
-      data: {
-        operationId: operation.id,
-        title: `Email: ${emailSubject}`,
-        eventType: analysis.emailType.toLowerCase(),
-        description: `De: ${fromEmail}`,
-        timestamp: new Date(),
-        source: 'email',
-      },
-    })
+      // Crear draft de email
+      await prisma.emailDraft.create({
+        data: {
+          operationId,
+          to: analysis.draftEmail.to,
+          subject: analysis.draftEmail.subject,
+          body: analysis.draftEmail.body,
+          status: 'DRAFT',
+          aiGenerated: true,
+          aiReasoning: analysis.reasoning,
+        },
+      })
 
-    // Crear tasks sugeridas
-    if (analysis.suggestedTasks && analysis.suggestedTasks.length > 0) {
-      await prisma.task.createMany({
-        data: analysis.suggestedTasks.map(task => ({
-          operationId: operation!.id,
-          userId,
-          title: task.title,
-          description: task.description,
-          priority: task.priority,
-          createdByAi: true,
-          aiConfidence: analysis.confidence,
-          estimatedCost: task.estimatedCost,
-        })),
+      // Guardar email recibido
+      await prisma.emailInbound.create({
+        data: {
+          operationId,
+          from: inboundEmail.from,
+          to: inboundEmail.to,
+          subject: inboundEmail.subject,
+          body: inboundEmail.body,
+          status: 'PROCESSED',
+          processedAt: new Date(),
+        },
       })
     }
 
-    return {
-      success: true,
-      operationId: operation.id,
-      message: `Email procesado exitosamente. Operación actualizada: ${operation.operationCode}`,
-    }
+    return analysis
   } catch (error) {
     console.error('Error processing email:', error)
     throw error
