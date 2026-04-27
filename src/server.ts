@@ -18,7 +18,7 @@ app.use(cors({ origin: ['http://localhost:3000', 'http://localhost:3001', 'https
 app.use(express.json())
 
 app.use((req, res, next: NextFunction) => {
-  req.headers['x-request-id'] = req.headers['x-request-id'] || `${Date.now()}`
+  req.headers['x-request-id'] = req.headers['x-request-id'] || String(Date.now())
   next()
 })
 
