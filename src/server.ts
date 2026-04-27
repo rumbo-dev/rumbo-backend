@@ -74,23 +74,6 @@ const authMiddleware = (req: AuthRequest, res: Response, next: NextFunction) => 
   }
 }
 
-app.post('/api/auth/login', async (req: Request, res: Response) => {
-  try {
-    const { email, password } = LoginSchema.parse(req.body)
-    const user = await prisma.user.findUnique({ where: { email } })
-    if (!user) {
-      return res.status(401).json({ error: 'Invalid credentials' })
-    }
-    const validPassword = await bcrypt.compare(password, user.password)
-    if (!validPassword) {
-      return res.status(401).json({ error: 'Invalid credentials' })
-    }
-    const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '24h' })
-    res.json({ token, user: { id: user.id, email: user.email, fullName: user.fullName } })
-  } catch (error) {
-    res.status(400).json({ error: 'Invalid request' })
-  }
-})
 
 app.get('/api/operations', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
@@ -316,4 +299,26 @@ app.use((err: any, req: Request, res: Response, next: NextFunction) => {
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`)
+})
+
+app.post('/api/auth/login', async (req: Request, res: Response) => {
+  try {
+    const { email, password } = req.body
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Missing credentials' })
+    }
+    const user = await prisma.user.findUnique({ where: { email } })
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid credentials' })
+    }
+    const validPassword = await bcrypt.compare(password, user.password)
+    if (!validPassword) {
+      return res.status(401).json({ error: 'Invalid credentials' })
+    }
+    const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '24h' })
+    res.json({ token, user: { id: user.id, email: user.email, fullName: user.fullName } })
+  } catch (error) {
+    console.error('Login error:', error)
+    res.status(500).json({ error: 'Server error' })
+  }
 })
