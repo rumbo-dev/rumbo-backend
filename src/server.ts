@@ -14,22 +14,18 @@ const prisma = new PrismaClient()
 const PORT = process.env.PORT || 3001
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-in-prod'
 
-// ============ MIDDLEWARE ============
 app.use(cors())
 app.use(express.json())
 
-// Request ID
-app.use((req, res, next) => {
+app.use((req, res, next: NextFunction) => {
   req.headers['x-request-id'] = req.headers['x-request-id'] || `${Date.now()}`
   next()
 })
 
-// ============ TYPES ============
 interface AuthRequest extends Request {
   userId?: string
 }
 
-// ============ VALIDATION SCHEMAS ============
 const LoginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(6),
@@ -64,365 +60,215 @@ const UpdateTaskSchema = z.object({
   status: z.string(),
 })
 
-// ============ MIDDLEWARE AUTH ============
 const authMiddleware = (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const token = req.headers.authorization?.split(' ')[1]
     if (!token) {
-      return res.status(401).json({ error: 'No token' })
+      return res.status(401).json({ error: 'No token provided' })
     }
-    const decoded = jwt.verify(token, JWT_SECRET) as any
+    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string }
     req.userId = decoded.userId
     next()
-  } catch (e) {
+  } catch (error) {
     res.status(401).json({ error: 'Invalid token' })
   }
 }
 
-// ============ HEALTH ============
-app.get('/health', (req, res) => {
-  res.json({ status: 'OK', timestamp: new Date().toISOString() })
-})
-
-// ============ AUTH ENDPOINTS ============
-app.post('/api/auth/login', async (req, res) => {
+app.post('/api/auth/login', async (req: Request, res: Response) => {
   try {
     const { email, password } = LoginSchema.parse(req.body)
-    
-    let user = await prisma.user.findUnique({ where: { email } })
-    
+    const user = await prisma.user.findUnique({ where: { email } })
     if (!user) {
-      // Demo user
-      const hashedPassword = await bcrypt.hash(password, 10)
-      user = await prisma.user.create({
-        data: {
-          email,
-          password: hashedPassword,
-          fullName: 'Demo User',
-        },
-      })
-    } else {
-      const validPassword = await bcrypt.compare(password, user.password)
-      if (!validPassword) {
-        return res.status(401).json({ error: 'Invalid password' })
-      }
+      return res.status(401).json({ error: 'Invalid credentials' })
     }
-    
-    const token = jwt.sign({ userId: user.id, email: user.email }, JWT_SECRET, { expiresIn: '24h' })
-    
-    res.json({
-      success: true,
-      token,
-      user: {
-        id: user.id,
-        email: user.email,
-        fullName: user.fullName,
-      },
-    })
-  } catch (e) {
-    res.status(400).json({ error: 'Login failed' })
+    const validPassword = await bcrypt.compare(password, user.password)
+    if (!validPassword) {
+      return res.status(401).json({ error: 'Invalid credentials' })
+    }
+    const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '24h' })
+    res.json({ token, user: { id: user.id, email: user.email, fullName: user.fullName } })
+  } catch (error) {
+    res.status(400).json({ error: 'Invalid request' })
   }
 })
 
-// ============ OPERATIONS ENDPOINTS ============
-
-// GET ALL OPERATIONS
-app.get('/api/operations', authMiddleware, async (req: AuthRequest, res) => {
+app.get('/api/operations', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const operations = await prisma.operation.findMany({
       where: { userId: req.userId },
-      include: { tasks: true },
+      include: { tasks: true, journeySteps: true },
       orderBy: { createdAt: 'desc' },
     })
-    
-    res.json({
-      success: true,
-      data: operations,
-    })
-  } catch (e) {
+    res.json(operations)
+  } catch (error) {
     res.status(500).json({ error: 'Failed to fetch operations' })
   }
 })
 
-// GET SINGLE OPERATION
-app.get('/api/operations/:id', authMiddleware, async (req: AuthRequest, res) => {
+app.get('/api/operations/:id', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
+    const { id } = req.params
     const operation = await prisma.operation.findUnique({
-      where: { id: req.params.id },
+      where: { id },
       include: {
         tasks: true,
-        journeySteps: {
-          orderBy: { stepNumber: 'asc' },
-        },
-        timelineEvents: {
-          orderBy: { timestamp: 'desc' },
-        },
+        journeySteps: { orderBy: { stepNumber: 'asc' } },
+        timelineEvents: { orderBy: { timestamp: 'desc' } },
       },
     })
-    
-    if (!operation) {
+    if (!operation || operation.userId !== req.userId) {
       return res.status(404).json({ error: 'Operation not found' })
     }
-    
-    if (operation.userId !== req.userId) {
-      return res.status(403).json({ error: 'Forbidden' })
-    }
-    
-    res.json({
-      success: true,
-      data: operation,
-    })
-  } catch (e) {
+    res.json(operation)
+  } catch (error) {
     res.status(500).json({ error: 'Failed to fetch operation' })
   }
 })
 
-// CREATE OPERATION
-app.post('/api/operations', authMiddleware, async (req: AuthRequest, res) => {
+app.post('/api/operations', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const data = CreateOperationSchema.parse(req.body)
-    
     const operation = await prisma.operation.create({
       data: {
         ...data,
         userId: req.userId!,
-        currentStage: 'Documentación',
-        status: 'DRAFT',
-        // Auto-create journey steps
-        journeySteps: {
-          create: [
-            { stepNumber: 1, stepName: 'Documentación', status: 'CURRENT' },
-            { stepNumber: 2, stepName: 'Booking', status: 'PENDING' },
-            { stepNumber: 3, stepName: 'En océano', status: 'PENDING' },
-            { stepNumber: 4, stepName: 'En puerto destino', status: 'PENDING' },
-            { stepNumber: 5, stepName: 'Aduanaje', status: 'PENDING' },
-            { stepNumber: 6, stepName: 'Entrega', status: 'PENDING' },
-          ],
-        },
-      },
-      include: {
-        journeySteps: true,
-        tasks: true,
+        currentStage: 'BOOKING',
+        status: 'ACTIVE',
       },
     })
-    
-    // Auto-create suggested tasks
-    await prisma.task.createMany({
-      data: [
-        {
+    const steps = [
+      { stepNumber: 1, stepName: 'Booking Confirmation', description: 'Esperar confirmación del booking' },
+      { stepNumber: 2, stepName: 'Documentation', description: 'Preparar documentación' },
+      { stepNumber: 3, stepName: 'Pickup', description: 'Recolección de carga' },
+      { stepNumber: 4, stepName: 'Port of Loading', description: 'Carga en puerto' },
+      { stepNumber: 5, stepName: 'In Transit', description: 'Transporte marítimo' },
+      { stepNumber: 6, stepName: 'Port of Discharge', description: 'Descarga en puerto destino' },
+    ]
+    for (const step of steps) {
+      await prisma.journeyStep.create({
+        data: { operationId: operation.id, ...step },
+      })
+    }
+    const aiTasks = [
+      { title: 'Confirm booking with shipping line', description: 'Contact shipping line to confirm booking' },
+      { title: 'Prepare export documentation', description: 'Gather and prepare all export documents' },
+      { title: 'Arrange pickup logistics', description: 'Coordinate pickup with client' },
+    ]
+    for (const task of aiTasks) {
+      await prisma.task.create({
+        data: {
           operationId: operation.id,
           userId: req.userId!,
-          title: 'Validar documentación aduanal',
-          description: 'Revisar BL y factura comercial antes de arribo',
+          ...task,
           priority: 'HIGH',
-          createdByAi: true,
-          aiConfidence: 0.92,
-          estimatedCost: 2500,
-        },
-        {
-          operationId: operation.id,
-          userId: req.userId!,
-          title: 'Coordinar desembarque en puerto',
-          description: 'Contactar terminales portuarias para confirmar fecha',
-          priority: 'HIGH',
-          createdByAi: true,
-          aiConfidence: 0.88,
-          estimatedCost: 3500,
-        },
-        {
-          operationId: operation.id,
-          userId: req.userId!,
-          title: 'Preparar trámite de importación',
-          description: 'Completar formularios DUCA e información aduanal',
-          priority: 'NORMAL',
           createdByAi: true,
           aiConfidence: 0.85,
-          estimatedCost: 1800,
         },
-      ],
-    })
-    
-    const fullOperation = await prisma.operation.findUnique({
-      where: { id: operation.id },
-      include: {
-        journeySteps: true,
-        tasks: true,
-      },
-    })
-    
-    res.status(201).json({
-      success: true,
-      data: fullOperation,
-    })
-  } catch (e: any) {
-    console.error(e)
-    res.status(400).json({ error: e.message || 'Failed to create operation' })
+      })
+    }
+    res.status(201).json(operation)
+  } catch (error) {
+    res.status(400).json({ error: 'Failed to create operation' })
   }
 })
 
-// UPDATE OPERATION
-app.patch('/api/operations/:id', authMiddleware, async (req: AuthRequest, res) => {
+app.patch('/api/operations/:id', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
+    const { id } = req.params
     const data = UpdateOperationSchema.parse(req.body)
-    
-    const operation = await prisma.operation.update({
-      where: { id: req.params.id },
+    const operation = await prisma.operation.findUnique({ where: { id } })
+    if (!operation || operation.userId !== req.userId) {
+      return res.status(404).json({ error: 'Operation not found' })
+    }
+    const updated = await prisma.operation.update({
+      where: { id },
       data,
-      include: {
-        tasks: true,
-        journeySteps: true,
-      },
     })
-    
-    res.json({
-      success: true,
-      data: operation,
-    })
-  } catch (e) {
-    res.status(500).json({ error: 'Failed to update operation' })
+    res.json(updated)
+  } catch (error) {
+    res.status(400).json({ error: 'Failed to update operation' })
   }
 })
 
-// UPDATE TASK STATUS
-app.patch('/api/tasks/:taskId', authMiddleware, async (req: AuthRequest, res) => {
+app.patch('/api/tasks/:taskId', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
+    const { taskId } = req.params
     const { status } = UpdateTaskSchema.parse(req.body)
-    
-    const task = await prisma.task.update({
-      where: { id: req.params.taskId },
-      data: { status },
+    const task = await prisma.task.findUnique({
+      where: { id: taskId },
+      include: { operation: true },
     })
-    
-    res.json({
-      success: true,
-      data: task,
+    if (!task || task.operation.userId !== req.userId) {
+      return res.status(404).json({ error: 'Task not found' })
+    }
+    const updated = await prisma.task.update({
+      where: { id: taskId },
+      data: { status, completedAt: status === 'COMPLETED' ? new Date() : null },
     })
-  } catch (e) {
-    res.status(500).json({ error: 'Failed to update task' })
+    res.json(updated)
+  } catch (error) {
+    res.status(400).json({ error: 'Failed to update task' })
   }
 })
 
-// DASHBOARD KPIs
-app.get('/api/dashboard/kpis', authMiddleware, async (req: AuthRequest, res) => {
+app.get('/api/dashboard/kpis', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const operations = await prisma.operation.findMany({
       where: { userId: req.userId },
+      include: { tasks: true },
     })
-    
-    const kpis = {
-      totalOperations: operations.length,
-      inTransit: operations.filter(op => op.status === 'IN_TRANSIT').length,
-      pending: operations.filter(op => op.status === 'PENDING').length,
-      completed: operations.filter(op => op.status === 'COMPLETED').length,
-      avgCost: operations.length ? operations.reduce((sum, op) => sum + op.costEstimate, 0) / operations.length : 0,
-      totalRevenue: operations.reduce((sum, op) => sum + op.costEstimate, 0),
-    }
-    
+    const totalOperations = operations.length
+    const activeOperations = operations.filter((op) => op.status === 'ACTIVE').length
+    const completedOperations = operations.filter((op) => op.status === 'COMPLETED').length
+    const pendingTasks = operations.reduce((acc, op) => acc + op.tasks.filter((t) => t.status === 'PENDING').length, 0)
     res.json({
-      success: true,
-      data: kpis,
+      totalOperations,
+      activeOperations,
+      completedOperations,
+      pendingTasks,
     })
-  } catch (e) {
+  } catch (error) {
     res.status(500).json({ error: 'Failed to fetch KPIs' })
   }
 })
 
-// ============ EMAIL PROCESSING (FASE 2) ============
-
-const ProcessEmailSchema = z.object({
-  emailSubject: z.string(),
-  emailBody: z.string(),
-  fromEmail: z.string().email(),
-  toEmail: z.string().email(),
-})
-
-app.post('/api/emails/process', authMiddleware, async (req: AuthRequest, res) => {
-  try {
-    const { emailSubject, emailBody, fromEmail, toEmail } = ProcessEmailSchema.parse(req.body)
-
-    const result = await processEmailAndUpdateOperation(
-      emailSubject,
-      emailBody,
-      fromEmail,
-      toEmail,
-      req.userId!
-    )
-
-    if (result.success) {
-      res.status(200).json({
-        success: true,
-        message: result.message,
-        operationId: result.operationId,
-      })
-    } else {
-      res.status(400).json({
-        success: false,
-        message: result.message,
-      })
-    }
-  } catch (e: any) {
-    console.error('Error processing email:', e)
-    res.status(500).json({
-      success: false,
-      error: e.message || 'Failed to process email',
-    })
-  }
-})
-
-// ============ ERROR HANDLING ============
-app.use((req, res) => {
-  res.status(404).json({ error: 'Route not found' })
-})
-
-// ============ START SERVER ============
-app.listen(PORT, () => {
-  console.log(`✓ Backend running on port ${PORT}`)
-})
-
-export default app
-
-// ============ EMAIL ENDPOINTS ============
-
-// Webhook de SendGrid - Recibir emails
 app.post('/api/emails/webhook', async (req: Request, res: Response) => {
   try {
     const { from, to, subject, text: body } = req.body
-
     if (!from || !to || !subject || !body) {
       return res.status(400).json({ error: 'Missing required fields' })
     }
-
-    // Intentar encontrar la operación por subject o body
     const operations = await prisma.operation.findMany({ take: 1 })
     const operationId = operations[0]?.id
-
-    // Procesar email
-    const analysis = await processEmailAndUpdateOperation(
-      { from, to, subject, body },
-      operationId
-    )
-
-    res.json({
-      success: true,
-      analysis,
-      operationId,
-    })
+    if (operationId) {
+      const analysis = await processEmailAndUpdateOperation(
+        { from, to, subject, body },
+        operationId
+      )
+      return res.json({
+        success: true,
+        analysis,
+        operationId,
+      })
+    }
+    res.json({ success: true, message: 'Email received but no operation matched' })
   } catch (error) {
     console.error('Webhook error:', error)
     res.status(500).json({ error: 'Failed to process webhook' })
   }
 })
 
-// Obtener drafts de una operación
 app.get('/api/emails/drafts/:operationId', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const { operationId } = req.params
-
+    const operation = await prisma.operation.findUnique({ where: { id: operationId } })
+    if (!operation || operation.userId !== req.userId) {
+      return res.status(404).json({ error: 'Operation not found' })
+    }
     const drafts = await prisma.emailDraft.findMany({
       where: { operationId },
       orderBy: { createdAt: 'desc' },
     })
-
     res.json(drafts)
   } catch (error) {
     console.error('Error fetching drafts:', error)
@@ -430,22 +276,16 @@ app.get('/api/emails/drafts/:operationId', authMiddleware, async (req: AuthReque
   }
 })
 
-// Enviar draft aprobado
 app.post('/api/emails/send', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const { draftId } = req.body
-
     const draft = await prisma.emailDraft.findUnique({
       where: { id: draftId },
       include: { operation: true },
     })
-
-    if (!draft) {
+    if (!draft || draft.operation.userId !== req.userId) {
       return res.status(404).json({ error: 'Draft not found' })
     }
-
-    // Aquí iría la lógica de SendGrid para enviar el email
-    // Por ahora, solo marcamos como enviado
     const sent = await prisma.emailDraft.update({
       where: { id: draftId },
       data: {
@@ -453,8 +293,6 @@ app.post('/api/emails/send', authMiddleware, async (req: AuthRequest, res: Respo
         sentAt: new Date(),
       },
     })
-
-    // Agregar a timeline
     await prisma.timelineEvent.create({
       data: {
         operationId: draft.operationId,
@@ -464,10 +302,18 @@ app.post('/api/emails/send', authMiddleware, async (req: AuthRequest, res: Respo
         source: 'EMAIL',
       },
     })
-
     res.json({ success: true, sent })
   } catch (error) {
     console.error('Error sending email:', error)
     res.status(500).json({ error: 'Failed to send email' })
   }
+})
+
+app.use((err: any, req: Request, res: Response, next: NextFunction) => {
+  console.error(err)
+  res.status(500).json({ error: 'Internal server error' })
+})
+
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`)
 })
