@@ -1,4 +1,4 @@
-import express, { Request, Response } from 'express'
+import express, { Request, Response, NextFunction } from 'express'
 import cors from 'cors'
 import dotenv from 'dotenv'
 import { PrismaClient } from '@prisma/client'
@@ -65,7 +65,7 @@ const UpdateTaskSchema = z.object({
 })
 
 // ============ MIDDLEWARE AUTH ============
-const authMiddleware = (req: AuthRequest, res: Response, next) => {
+const authMiddleware = (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const token = req.headers.authorization?.split(' ')[1]
     if (!token) {
