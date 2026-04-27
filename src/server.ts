@@ -14,7 +14,7 @@ const prisma = new PrismaClient()
 const PORT = process.env.PORT || 3001
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-in-prod'
 
-app.use(cors())
+app.use(cors({ origin: ['http://localhost:3000', 'http://localhost:3001', 'https://rumbo-frontend.vercel.app'] }))
 app.use(express.json())
 
 app.use((req, res, next: NextFunction) => {
