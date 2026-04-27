@@ -4,109 +4,71 @@ import { PrismaClient } from '@prisma/client'
 const client = new Anthropic()
 const prisma = new PrismaClient()
 
-interface EmailAnalysisResult {
-  operationCode: string | null
-  containerNumber: string | null
-  suggestedTasks: string[]
-  urgencyLevel: 'LOW' | 'NORMAL' | 'HIGH' | 'CRITICAL'
-  draftEmail: {
-    to: string
-    subject: string
-    body: string
-  }
-  reasoning: string
-}
-
 export async function processEmailAndUpdateOperation(
-  inboundEmail: {
-    from: string
-    to: string
-    subject: string
-    body: string
-  },
+  inboundEmail: { from: string; to: string; subject: string; body: string },
   operationId?: string
-): Promise<EmailAnalysisResult> {
+) {
   try {
-    // Llamar a Claude para analizar el email
+    console.log('Processing email:', inboundEmail.subject)
+    
     const response = await client.messages.create({
       model: 'claude-opus-4-6',
       max_tokens: 2000,
       messages: [
         {
           role: 'user',
-          content: `You are an expert freight forwarding AI assistant. Analyze this incoming email and provide structured guidance.
+          content: `You are a freight forwarding AI assistant. Analyze this email and respond ONLY with valid JSON (no markdown, no extra text).
 
-INCOMING EMAIL:
+EMAIL:
 From: ${inboundEmail.from}
 To: ${inboundEmail.to}
 Subject: ${inboundEmail.subject}
 Body: ${inboundEmail.body}
 
-Please respond with a JSON object containing:
-1. operationCode: Extract the operation code if present (e.g., "OP-2024-001")
-2. containerNumber: Extract container number if present
-3. suggestedTasks: Array of 2-3 actionable tasks the freight forwarder should do
-4. urgencyLevel: Set to LOW, NORMAL, HIGH, or CRITICAL based on the email content
-5. draftEmail: Object with "to", "subject", "body" - a professional response email to send
-6. reasoning: Brief explanation of your analysis
-
-Respond ONLY with the JSON object, no markdown or extra text.`,
+Respond with this JSON structure:
+{
+  "operationCode": "extracted code or null",
+  "containerNumber": "extracted container or null",
+  "suggestedTasks": ["task 1", "task 2"],
+  "urgencyLevel": "NORMAL",
+  "draftEmail": {
+    "to": "${inboundEmail.from}",
+    "subject": "RE: ${inboundEmail.subject}",
+    "body": "Professional response in Spanish"
+  },
+  "reasoning": "Brief explanation"
+}`,
         },
       ],
     })
 
-    // Extraer el contenido de la respuesta
+    console.log('Claude response received')
+    
     const content = response.content[0]
     if (content.type !== 'text') {
-      throw new Error('Unexpected response type from Claude')
+      throw new Error('Unexpected response type')
     }
 
-    const analysis = JSON.parse(content.text) as EmailAnalysisResult
+    let analysis
+    try {
+      const cleanedText = content.text.trim().replace(/^```json\s*/i, '').replace(/\s*```$/, '')
+      analysis = JSON.parse(cleanedText)
+    } catch (parseError) {
+      console.error('JSON parse error:', content.text)
+      throw new Error('Failed to parse Claude response')
+    }
 
-    // Si tenemos operationId, actualizamos la operación
     if (operationId) {
-      // Crear evento en timeline
-      await prisma.timelineEvent.create({
-        data: {
-          operationId,
-          title: `Email recibido: ${inboundEmail.subject}`,
-          eventType: 'EMAIL_RECEIVED',
-          description: `De: ${inboundEmail.from}`,
-          source: 'EMAIL',
-        },
+      const operation = await prisma.operation.findUnique({ 
+        where: { id: operationId },
+        select: { userId: true }
       })
-
-      // Crear tasks sugeridas
-      for (const taskDescription of analysis.suggestedTasks) {
-        await prisma.task.create({
-          data: {
-            operationId,
-            userId: 'demo-user', // En producción, sería del usuario actual
-            title: taskDescription.split('\n')[0].substring(0, 100),
-            description: taskDescription,
-            priority: analysis.urgencyLevel === 'CRITICAL' ? 'CRITICAL' : analysis.urgencyLevel === 'HIGH' ? 'HIGH' : 'NORMAL',
-            status: 'PENDING',
-            createdByAi: true,
-            aiConfidence: 0.85,
-            aiReasoning: analysis.reasoning,
-          },
-        })
+      
+      if (!operation) {
+        throw new Error('Operation not found')
       }
 
-      // Crear draft de email
-      await prisma.emailDraft.create({
-        data: {
-          operationId,
-          to: analysis.draftEmail.to,
-          subject: analysis.draftEmail.subject,
-          body: analysis.draftEmail.body,
-          status: 'DRAFT',
-          aiGenerated: true,
-          aiReasoning: analysis.reasoning,
-        },
-      })
-
-      // Guardar email recibido
+      // Save inbound email
       await prisma.emailInbound.create({
         data: {
           operationId,
@@ -118,11 +80,58 @@ Respond ONLY with the JSON object, no markdown or extra text.`,
           processedAt: new Date(),
         },
       })
+
+      // Create timeline event
+      await prisma.timelineEvent.create({
+        data: {
+          operationId,
+          title: `Email recibido: ${inboundEmail.subject}`,
+          eventType: 'EMAIL_RECEIVED',
+          description: `De: ${inboundEmail.from}`,
+          source: 'EMAIL',
+        },
+      })
+
+      // Create suggested tasks
+      if (Array.isArray(analysis.suggestedTasks)) {
+        for (const taskTitle of analysis.suggestedTasks) {
+          if (typeof taskTitle === 'string' && taskTitle.length > 0) {
+            await prisma.task.create({
+              data: {
+                operationId,
+                userId: operation.userId,
+                title: taskTitle.substring(0, 200),
+                description: taskTitle,
+                priority: analysis.urgencyLevel || 'NORMAL',
+                status: 'PENDING',
+                createdByAi: true,
+                aiConfidence: 0.85,
+                aiReasoning: analysis.reasoning || '',
+              },
+            })
+          }
+        }
+      }
+
+      // Create email draft
+      if (analysis.draftEmail) {
+        await prisma.emailDraft.create({
+          data: {
+            operationId,
+            to: analysis.draftEmail.to || inboundEmail.from,
+            subject: analysis.draftEmail.subject || `RE: ${inboundEmail.subject}`,
+            body: analysis.draftEmail.body || '',
+            status: 'DRAFT',
+            aiGenerated: true,
+            aiReasoning: analysis.reasoning || '',
+          },
+        })
+      }
     }
 
     return analysis
-  } catch (error) {
-    console.error('Error processing email:', error)
+  } catch (error: any) {
+    console.error('Email processing error:', error.message)
     throw error
   }
 }
