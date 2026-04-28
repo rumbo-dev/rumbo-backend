@@ -41,6 +41,7 @@ model Operation {
   weightKg        Float
   cbm             Float?
   incoterm        String
+  mode            String   @default("FCL")
   clientName      String
   clientEmail     String?
   
