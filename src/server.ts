@@ -90,8 +90,9 @@ app.post('/api/operations', authMiddleware, async (req: AuthRequest, res: Respon
         operationCode, containerNumber, originPort, originCountry, destinationPort, destinationCountry,
         weightKg, cbm, incoterm, mode: mode || 'FCL', clientName, clientEmail, shippingLine, costEstimate, priority,
         userId: req.userId!,
-        currentStage: 'BOOKING',
-        status: 'ACTIVE',
+        subStatus: 'BOOKING_PENDING',
+        currentOwner: 'CUSTOMER',
+        status: 'BOOKING',
       },
     })
     
@@ -203,12 +204,15 @@ app.post('/api/emails/process-and-create', authMiddleware, async (req: AuthReque
       return res.status(400).json({ error: 'Missing rawEmail in body' })
     }
     
-    const { processEmailIntake } = await import('./services/EmailIntakeService.js')
-    const result = await processEmailIntake(rawEmail, req.userId!)
+    const { processEmailWithOrchestrator } = await import('./agents/Orchestrator.js')
+    const result = await processEmailWithOrchestrator({ 
+      rawEmail, 
+      userId: req.userId! 
+    })
     
     res.json(result)
   } catch (error: any) {
-    console.error('Email intake error:', error.message)
+    console.error('Orchestrator error:', error.message)
     res.status(500).json({ error: 'Failed to process email', details: error.message })
   }
 })

@@ -1,0 +1,195 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// USUARIOS
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  fullName  String
+  role      String   @default("OPERATOR")
+  
+  operations Operation[]
+  tasks      Task[]
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// OPERACIONES (Shipments)
+model Operation {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id])
+  
+  operationCode   String   @unique
+  containerNumber String   @unique
+  
+  // Puertos
+  originPort      String
+  destinationPort String
+  originCountry   String
+  destinationCountry String
+  
+  // Cargo
+  weightKg        Float
+  cbm             Float?
+  incoterm        String
+  mode            String   @default("FCL")
+  clientName      String
+  clientEmail     String?
+  
+  // Shipping
+  shippingLine    String
+  vessel          String?
+  
+  // Status
+  status          String   @default("DRAFT")
+  currentStage    String
+  
+  // Costos
+  costEstimate    Float
+  costActual      Float?
+  
+  // Fechas
+  eta             DateTime?
+  
+  // Prioridad
+  priority        String   @default("NORMAL")
+  
+  // Info
+  notes           String?
+  
+  // Relaciones
+  tasks           Task[]
+  journeySteps    JourneyStep[]
+  timelineEvents  TimelineEvent[]
+  emailsInbound  EmailInbound[]
+  emailDrafts    EmailDraft[]
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+// TAREAS
+model Task {
+  id              String   @id @default(cuid())
+  operationId     String
+  operation       Operation @relation(fields: [operationId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User     @relation(fields: [userId], references: [id])
+  
+  title           String
+  description     String
+  priority        String   @default("NORMAL")
+  status          String   @default("PENDING")
+  
+  // AI
+  createdByAi     Boolean  @default(false)
+  aiConfidence    Float?
+  aiReasoning     String?
+  
+  // Fechas
+  dueDate         DateTime?
+  completedAt     DateTime?
+  
+  // Costos
+  estimatedCost   Float?
+  actualCost      Float?
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@index([operationId])
+  @@index([status])
+}
+
+// JOURNEY STEPS
+model JourneyStep {
+  id            String   @id @default(cuid())
+  operationId   String
+  operation     Operation @relation(fields: [operationId], references: [id], onDelete: Cascade)
+  
+  stepNumber    Int
+  stepName      String
+  description   String?
+  
+  status        String   @default("PENDING")
+  estimatedDate DateTime?
+  actualDate    DateTime?
+  
+  @@unique([operationId, stepNumber])
+}
+
+// TIMELINE EVENTS
+model TimelineEvent {
+  id            String   @id @default(cuid())
+  operationId   String
+  operation     Operation @relation(fields: [operationId], references: [id], onDelete: Cascade)
+  
+  title         String
+  eventType     String
+  description   String?
+  location      String?
+  
+  timestamp     DateTime @default(now())
+  source        String?
+}
+// EMAILS RECIBIDOS
+model EmailInbound {
+  id            String   @id @default(cuid())
+  operationId   String?
+  operation     Operation? @relation(fields: [operationId], references: [id], onDelete: SetNull)
+  
+  from          String
+  to            String
+  subject       String
+  body          String
+  
+  // Metadata de SendGrid
+  sendgridEventId String?
+  
+  status        String   @default("RECEIVED") // RECEIVED, PROCESSED
+  processedAt   DateTime?
+  
+  timestamp     DateTime @default(now())
+  
+  @@index([operationId])
+  @@index([timestamp])
+}
+
+// EMAIL DRAFTS (sugeridos por AI)
+model EmailDraft {
+  id            String   @id @default(cuid())
+  operationId   String
+  operation     Operation @relation(fields: [operationId], references: [id], onDelete: Cascade)
+  taskId        String?
+  
+  to            String
+  subject       String
+  body          String
+  
+  status        String   @default("DRAFT") // DRAFT, APPROVED, SENT, REJECTED
+  
+  // Metadata
+  aiGenerated   Boolean  @default(true)
+  aiReasoning   String?
+  
+  sentAt        DateTime?
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@index([operationId])
+  @@index([status])
+}	
