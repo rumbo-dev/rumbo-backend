@@ -5,6 +5,7 @@ import { PrismaClient } from '@prisma/client'
 import jwt from 'jsonwebtoken'
 import bcrypt from 'bcryptjs'
 import { processEmailAndUpdateOperation } from './services/EmailService.js'
+import aiChatRouter from './routes/aiChat.js'
 
 dotenv.config()
 
@@ -15,6 +16,9 @@ const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-in-prod'
 
 app.use(cors())
 app.use(express.json())
+
+// AI Chat route
+app.use('/api/ai/chat', aiChatRouter)
 
 interface AuthRequest extends Request {
   userId?: string
