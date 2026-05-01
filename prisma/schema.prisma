@@ -1,3 +1,18 @@
+// ============================================================================
+// RUMBO — SCHEMA PRISMA V2
+// Modelo: 1 status canónico + 1 currentOwner + 17 sub-status + 5 flags
+// ============================================================================
+// 
+// CAMBIOS vs schema actual:
+// - Operation: nuevos campos status canónico, currentOwner, flags, awaitingFor
+// - Task: nuevo campo responsibleTeam, actionType, executableAction (JSON)
+// - Nuevo modelo: AgentDecision (para tracking de confidence y debugging)
+// - EmailDraft, EmailInbound, JourneyStep, TimelineEvent: sin cambios mayores
+// 
+// MIGRATION STRATEGY:
+// Como decidimos arrancar limpio, este schema reemplaza 100% al actual.
+// Borrar todas las operations existentes y aplicar este schema fresh.
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -7,160 +22,254 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// USUARIOS
+// ============================================================================
+// USER / AUTH
+// ============================================================================
+
 model User {
   id        String   @id @default(cuid())
   email     String   @unique
   password  String
   fullName  String
-  role      String   @default("OPERATOR")
-  
-  operations Operation[]
-  tasks      Task[]
-  
+  role      String   @default("OPERATIONS")  // OPERATIONS | PRICING | SALES | CUSTOMER_SUPPORT | ADMIN
+  team      String   @default("CUSTOMER")    // SALES | PRICING | CUSTOMER | OPS | ADMIN
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  
+  operations    Operation[]
+  tasks         Task[]
+  agentDecisions AgentDecision[]
 }
 
-// OPERACIONES (Shipments)
+// ============================================================================
+// OPERATION — el modelo central
+// ============================================================================
+
 model Operation {
   id              String   @id @default(cuid())
   userId          String
   user            User     @relation(fields: [userId], references: [id])
   
-  operationCode   String   @unique
-  containerNumber String   @unique
+  // ========== IDENTIFICATION ==========
+  operationCode   String   // Código real de operación (post-confirmación)
+  quoteCode       String?  // Código interno de cotización (pre-confirmación) si aplica
+  containerNumber String?  // Puede ser null si todavía no hay container asignado (cotización)
   
-  // Puertos
-  originPort      String
-  destinationPort String
-  originCountry   String
-  destinationCountry String
+  // ========== STATUS CANÓNICO (5 valores) ==========
+  // Macro-estado para reportes y vistas ejecutivas
+  status          String   @default("QUOTING")
+  // Valores: "QUOTING" | "BOOKING" | "IN_TRANSIT" | "AT_DESTINATION" | "CLOSED"
   
-  // Cargo
-  weightKg        Float
-  cbm             Float?
-  incoterm        String
-  mode            String   @default("FCL")
-  clientName      String
-  clientEmail     String?
+  // ========== SUB-STATUS GRANULAR (17 valores) ==========
+  // Lo que el operador ve en el dashboard
+  subStatus       String   @default("NEW_QUOTE")
+  // Valores: ver 01_ANALISIS_38_STATUS.md catálogo completo
   
-  // Shipping
-  shippingLine    String
-  vessel          String?
+  // ========== OWNERSHIP ==========
+  currentOwner    String   @default("SALES")
+  // Valores: "SALES" | "PRICING" | "CUSTOMER" | "OPS"
   
-  // Status
-  status          String   @default("DRAFT")
-  currentStage    String
+  // ========== AWAITING (sub-estado dinámico) ==========
+  awaitingFor          String?    // qué estamos esperando exactamente
+  // Valores: agent_booking_confirmation | client_info | client_docs | 
+  //          client_approval_docs | client_etd_confirmation | carrier_documents |
+  //          MANI_filing | demurrage_authorization | customs_release | 
+  //          delivery_confirmation | null
+  awaitingSince        DateTime?  // desde cuándo
+  awaitingFollowupDue  DateTime?  // cuándo escalar (default: +48h)
   
-  // Costos
-  costEstimate    Float
-  costActual      Float?
+  // ========== FLAGS PARALELOS (5) ==========
+  isActionRequired     Boolean   @default(false)
+  actionRequiredFrom   String?   // SALES | PRICING | CUSTOMER | OPS
+  actionRequiredReason String?
+  actionRequiredSince  DateTime?
   
-  // Fechas
-  eta             DateTime?
+  isDelayed            Boolean   @default(false)
+  originalETA          DateTime?
+  delayReason          String?
   
-  // Prioridad
-  priority        String   @default("NORMAL")
+  isInDispute          Boolean   @default(false)
+  disputeReason        String?
+  disputeWith          String?   // CARRIER | AGENT | CLIENT | CUSTOMS_BROKER | etc
   
-  // Info
-  notes           String?
+  isQuoteExpired       Boolean   @default(false)
+  quoteExpirationDate  DateTime?
   
-  // Relaciones
-  tasks           Task[]
-  journeySteps    JourneyStep[]
-  timelineEvents  TimelineEvent[]
-  emailsInbound  EmailInbound[]
-  emailDrafts    EmailDraft[]
+  isCancelled          Boolean   @default(false)
+  cancelReason         String?
   
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  // ========== SHIPMENT DETAILS ==========
+  originPort           String?
+  originCountry        String?   // ISO 2 letras
+  destinationPort      String?
+  destinationCountry   String?   // ISO 2 letras
+  weightKg             Float?
+  cbm                  Float?
+  incoterm             String?   // FOB | CIF | EXW | DDP
+  mode                 String    @default("FCL")  // FCL | LCL | AIR | LAND
+  
+  // ========== CLIENT ==========
+  clientName           String
+  clientEmail          String?
+  
+  // ========== CARRIER / AGENT ==========
+  shippingLine         String?   // Maersk, MSC, etc
+  vessel               String?
+  bookingNumber        String?
+  blNumber             String?
+  contractNumber       String?
+  originAgentEmail     String?
+  
+  // ========== TIMELINE ==========
+  eta                  DateTime?
+  etd                  DateTime?
+  actualArrival        DateTime?
+  
+  // ========== PRICING (sin exponer en dashboard) ==========
+  costEstimate         Float?
+  costActual           Float?
+  
+  // ========== METADATA ==========
+  priority             String    @default("NORMAL")  // LOW | NORMAL | HIGH | CRITICAL
+  notes                String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  
+  // ========== RELATIONS ==========
+  tasks                Task[]
+  journeySteps         JourneyStep[]
+  timelineEvents       TimelineEvent[]
+  emailsInbound        EmailInbound[]
+  emailDrafts          EmailDraft[]
+  agentDecisions       AgentDecision[]
   
   @@index([userId])
   @@index([status])
-  @@index([createdAt])
+  @@index([currentOwner])
+  @@index([subStatus])
+  @@index([isActionRequired])
 }
 
-// TAREAS
+// ============================================================================
+// TASK — Action Items que los agentes generan
+// ============================================================================
+
 model Task {
-  id              String   @id @default(cuid())
-  operationId     String
-  operation       Operation @relation(fields: [operationId], references: [id], onDelete: Cascade)
-  userId          String
-  user            User     @relation(fields: [userId], references: [id])
+  id                String   @id @default(cuid())
+  operationId       String
+  operation         Operation @relation(fields: [operationId], references: [id], onDelete: Cascade)
+  userId            String
+  user              User     @relation(fields: [userId], references: [id])
   
-  title           String
-  description     String
-  priority        String   @default("NORMAL")
-  status          String   @default("PENDING")
+  // ========== TASK CONTENT ==========
+  title             String
+  description       String?
   
-  // AI
-  createdByAi     Boolean  @default(false)
-  aiConfidence    Float?
-  aiReasoning     String?
+  // ========== CLASSIFICATION (nuevo) ==========
+  actionType        String   @default("INTERNAL_DECISION")
+  // Valores: EMAIL_OUT | DOCUMENT_REQUEST | DOCUMENT_REVIEW | DOCUMENT_GENERATE |
+  //          STATUS_CHECK | PAYMENT_ACTION | INTERNAL_DECISION | DATA_ENTRY | ESCALATION
   
-  // Fechas
-  dueDate         DateTime?
-  completedAt     DateTime?
+  responsibleTeam   String   @default("CUSTOMER")
+  // Valores: SALES | PRICING | CUSTOMER | OPS
   
-  // Costos
-  estimatedCost   Float?
-  actualCost      Float?
+  responsibleParty  String?  // ej: "Lab Biotech SA" | "Maersk" | "Despachante X"
   
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  emailIntent       String?  // si actionType = EMAIL_OUT, qué intent
+  // Valores: COORDINATION | INFO_REQUEST | INFO_PROVIDE | STATUS_UPDATE |
+  //          INSTRUCTION | CONFIRMATION | ESCALATION_INTERNAL | QUOTATION_REQUEST |
+  //          QUOTATION_PROVIDE | INVOICE_FOLLOWUP | DISPUTE
+  
+  // ========== EXECUTABLE ACTION (JSON) ==========
+  executableAction  Json?
+  // Estructura ejemplo (varía según actionType):
+  // EMAIL_OUT: { to, cc, subject, body, attachmentsNeeded, missingInfo[] }
+  // DOCUMENT_GENERATE: { documentType, template, dataPoints[] }
+  // STATUS_CHECK: { system, identifier, fieldsToVerify[] }
+  
+  // ========== PRIORITY ==========
+  priority          String   @default("NORMAL")
+  // Valores: LOW | NORMAL | MEDIUM | HIGH | CRITICAL
+  urgency           String   @default("NORMAL")
+  // Sinónimo de priority pero específico para urgencia temporal
+  
+  // ========== STATUS ==========
+  status            String   @default("PENDING")
+  // Valores: PENDING | IN_PROGRESS | COMPLETED | DISMISSED
+  
+  // ========== AI METADATA ==========
+  createdByAi       Boolean  @default(false)
+  aiConfidence      Float?
+  aiReasoning       String?
+  aiAgent           String?  // qué agente la generó
+  
+  // ========== TIMESTAMPS ==========
+  dueDate           DateTime?
+  completedAt       DateTime?
+  dismissedAt       DateTime?
+  estimatedCost     Float?
+  actualCost        Float?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
   
   @@index([operationId])
   @@index([status])
+  @@index([responsibleTeam])
+  @@index([priority])
 }
 
-// JOURNEY STEPS
+// ============================================================================
+// JOURNEY STEP — Timeline visual de la operación
+// ============================================================================
+
 model JourneyStep {
   id            String   @id @default(cuid())
   operationId   String
   operation     Operation @relation(fields: [operationId], references: [id], onDelete: Cascade)
   
-  stepNumber    Int
-  stepName      String
-  description   String?
+  stepNumber    Int      // orden cronológico
+  stepName      String   // nombre del step (ej: "Booking Confirmation")
+  description   String?  // narrativa ejecutiva
   
   status        String   @default("PENDING")
+  // Valores: PENDING | CURRENT | COMPLETED | SKIPPED
+  
+  // ========== DATES ==========
   estimatedDate DateTime?
   actualDate    DateTime?
+  completedAt   DateTime?
   
-  @@unique([operationId, stepNumber])
+  // ========== AI-GENERATED NARRATIVE ==========
+  // Cuando el step se completa, el TimelineUpdater puede generar una nota narrativa
+  // ej: "Maersk confirmó la reserva en el MAERSK LIMA con salida el 5 de mayo"
+  narrativeNote String?
+  
+  @@index([operationId])
+  @@index([stepNumber])
 }
 
-// TIMELINE EVENTS
+// ============================================================================
+// TIMELINE EVENT — Eventos puntuales (no son estados, son cosas que pasaron)
+// ============================================================================
+
 model TimelineEvent {
   id            String   @id @default(cuid())
   operationId   String
   operation     Operation @relation(fields: [operationId], references: [id], onDelete: Cascade)
   
   title         String
-  eventType     String
   description   String?
-  location      String?
+  eventType     String
+  // Valores: EMAIL_RECEIVED | EMAIL_SENT | STATUS_CHANGED | DOCUMENT_RECEIVED |
+  //          DOCUMENT_SENT | SCHEDULE_CHANGED | ITINERARY_CHANGED | TASK_COMPLETED |
+  //          OPERATION_CREATED | DISPUTE_OPENED | DISPUTE_RESOLVED
   
-  timestamp     DateTime @default(now())
-  source        String?
-}
-// EMAILS RECIBIDOS
-model EmailInbound {
-  id            String   @id @default(cuid())
-  operationId   String?
-  operation     Operation? @relation(fields: [operationId], references: [id], onDelete: SetNull)
+  source        String   // EMAIL | AI_INTAKE | MANUAL | SYSTEM | TRACKING_API
+  sourceTeam    String?  // SALES | PRICING | CUSTOMER | OPS | EXTERNAL
   
-  from          String
-  to            String
-  subject       String
-  body          String
-  
-  // Metadata de SendGrid
-  sendgridEventId String?
-  
-  status        String   @default("RECEIVED") // RECEIVED, PROCESSED
-  processedAt   DateTime?
+  // Para eventos relacionados con cambios
+  fromValue     String?  // valor anterior si aplica
+  toValue       String?  // valor nuevo si aplica
   
   timestamp     DateTime @default(now())
   
@@ -168,28 +277,129 @@ model EmailInbound {
   @@index([timestamp])
 }
 
-// EMAIL DRAFTS (sugeridos por AI)
+// ============================================================================
+// EMAIL INBOUND — Emails que entran al sistema
+// ============================================================================
+
+model EmailInbound {
+  id            String   @id @default(cuid())
+  operationId   String?
+  operation     Operation? @relation(fields: [operationId], references: [id])
+  
+  from          String
+  to            String
+  cc            String?
+  subject       String
+  body          String   @db.Text
+  rawEmail      String?  @db.Text  // email completo si lo guardamos
+  
+  // ========== ROUTING ==========
+  matchConfidence Float?    // qué tan seguros estamos que pertenece a esta operación
+  matchedBy       String?   // operationCode | container | bl | thread | sender_match | ai_inference
+  
+  status        String   @default("PROCESSED")
+  // Valores: PENDING_ROUTING | PROCESSED | UNASSIGNED | FAILED
+  
+  // ========== AI ANALYSIS ==========
+  aiAnalysis    Json?    // resultado del orchestrator (qué tipo de email, qué actions generó, etc)
+  
+  receivedAt    DateTime @default(now())
+  processedAt   DateTime?
+  
+  @@index([operationId])
+  @@index([status])
+}
+
+// ============================================================================
+// EMAIL DRAFT — Drafts generados por AI esperando aprobación
+// ============================================================================
+
 model EmailDraft {
   id            String   @id @default(cuid())
   operationId   String
   operation     Operation @relation(fields: [operationId], references: [id], onDelete: Cascade)
-  taskId        String?
+  taskId        String?  // si está vinculado a una task
   
   to            String
+  cc            String?
+  bcc           String?
   subject       String
-  body          String
+  body          String   @db.Text
+  attachments   Json?    // array de filenames/IDs
   
-  status        String   @default("DRAFT") // DRAFT, APPROVED, SENT, REJECTED
+  // ========== INTENT ==========
+  intent        String?  // COORDINATION | INFO_REQUEST | etc (mismos que en Task)
+  recipientType String?  // CARRIER | IMPORTER | EXPORTER | ORIGIN_AGENT | etc
+  language      String   @default("es")
   
-  // Metadata
-  aiGenerated   Boolean  @default(true)
+  // ========== STATUS ==========
+  status        String   @default("DRAFT")
+  // Valores: DRAFT | EDITED | APPROVED | SENT | REJECTED | FAILED
+  
+  // ========== AI METADATA ==========
+  aiGenerated   Boolean  @default(false)
   aiReasoning   String?
+  aiConfidence  Float?
   
+  // ========== HUMAN EDIT TRACKING ==========
+  // Si el humano edita el draft antes de aprobar, guardamos el delta
+  // para usar como few-shot examples futuros
+  originalBody  String?  @db.Text  // el body original que generó AI
+  finalBody     String?  @db.Text  // el body final después de edits
+  
+  // ========== MISSING INFO ==========
+  missingInfo   Json?    // campos que el draft pide al humano completar antes de enviar
+  // ej: [{ field: "to", reason: "destinatario no encontrado en cadena previa" }]
+  
+  // ========== TIMESTAMPS ==========
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  approvedAt    DateTime?
   sentAt        DateTime?
-  
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  rejectedAt    DateTime?
   
   @@index([operationId])
   @@index([status])
-}	
+}
+
+// ============================================================================
+// AGENT DECISION — Tracking de decisiones de los agentes (debugging + learning)
+// ============================================================================
+
+model AgentDecision {
+  id            String   @id @default(cuid())
+  operationId   String?
+  operation     Operation? @relation(fields: [operationId], references: [id])
+  userId        String?
+  user          User?    @relation(fields: [userId], references: [id])
+  
+  // ========== DECISION CONTEXT ==========
+  agentName     String   // Orchestrator | EmailParser | ActionClassifier | EmailDrafter | TimelineUpdater
+  decisionType  String   // CLASSIFY_EMAIL | CREATE_TASK | DRAFT_EMAIL | ADVANCE_STATUS | etc
+  
+  // ========== INPUT/OUTPUT ==========
+  inputData     Json     // qué recibió el agente
+  outputData    Json     // qué decidió
+  toolsUsed     Json?    // qué tools llamó (si tool use)
+  
+  // ========== CONFIDENCE ==========
+  confidence    Float?
+  wasAutoApplied Boolean @default(false)  // si se aplicó solo (>0.9) o requirió aprobación
+  
+  // ========== HUMAN OVERRIDE ==========
+  humanApproved      Boolean?
+  humanRejected      Boolean?
+  humanModification  Json?     // qué cambió el humano vs lo que el agente sugirió
+  
+  // ========== METADATA ==========
+  modelUsed     String?  // claude-haiku | claude-sonnet-4-6 | claude-opus-4-6
+  tokensInput   Int?
+  tokensOutput  Int?
+  latencyMs     Int?
+  
+  createdAt     DateTime @default(now())
+  
+  @@index([operationId])
+  @@index([agentName])
+  @@index([createdAt])
+}
