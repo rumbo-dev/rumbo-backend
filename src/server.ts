@@ -72,15 +72,20 @@ app.get('/api/operations', authMiddleware, async (req: AuthRequest, res: Respons
 
 app.get('/api/operations/:id', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
-    const operation = await prisma.operation.findUnique({
-      where: { id: req.params.id },
+    const param = req.params.id
+    // Accept both UUIDs and operationCodes (e.g. "OP-0142") for shareable URLs
+    const isOperationCode = /^OP-/i.test(param)
+    const operation = await prisma.operation.findFirst({
+      where: isOperationCode
+        ? { operationCode: param, userId: req.userId }
+        : { id: param, userId: req.userId },
       include: {
         tasks: true,
         journeySteps: { orderBy: { stepNumber: 'asc' } },
         timelineEvents: { orderBy: { timestamp: 'desc' } },
       },
     })
-    if (!operation || operation.userId !== req.userId) return res.status(404).json({ error: 'Not found' })
+    if (!operation) return res.status(404).json({ error: 'Not found' })
     res.json(operation)
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch' })
