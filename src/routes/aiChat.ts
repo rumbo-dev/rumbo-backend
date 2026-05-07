@@ -158,24 +158,24 @@ async function executeTool(toolName: string, input: any) {
       return {
         operations: [
           { operationCode: 'OP-0142', clientName: 'Importadora del Sur', status: 'IN_TRANSIT', isDelayed: true },
-          { operationCode: 'OP-0173', clientName: 'Quest Industries', status: 'QUOTING', daysWithoutResponse: 7 },
+          { operationCode: 'OP-0173', clientName: 'Quest Industries', status: 'BOOKING_CONFIRMED', daysWithoutReconfirm: 4 },
           { operationCode: 'OP-0184', clientName: 'Distribuidora Norte SA', status: 'AT_DESTINATION' },
         ]
       };
     case 'find_operations_with_issues':
       return {
         issues: [
-          { operationCode: 'OP-0142', issue: 'Delayed 2 days', impact: '$500 USD demurrage' },
-          { operationCode: 'OP-0173', issue: 'Cliente sin responder 7 días', impact: '$12,000 USD riesgo cancelación' },
+          { operationCode: 'OP-0142', issue: 'Demora 48h vs schedule', impact: 'Notificar al cliente' },
+          { operationCode: 'OP-0173', issue: 'Cliente sin reconfirmar booking hace 4 días', impact: '$300 USD penalty cancelación' },
+          { operationCode: 'OP-0184', issue: 'Discrepancia 350 kg en BL', impact: '$450 USD multa potencial AFIP' },
         ]
       };
     case 'calculate_financial_exposure':
       return {
-        totalExposure: 18000,
+        totalExposure: 750,
         breakdown: [
-          { operationCode: 'OP-0173', exposure: 12000, reason: 'Riesgo cancelación' },
-          { operationCode: 'OP-0142', exposure: 4200, reason: 'Demurrage por delay' },
-          { operationCode: 'OP-0184', exposure: 1800, reason: 'Multa aduana potencial' },
+          { operationCode: 'OP-0173', exposure: 300, reason: 'Penalty Maersk por cancelación de booking sin reconfirmar' },
+          { operationCode: 'OP-0184', exposure: 450, reason: 'Multa potencial AFIP por discrepancia BL (350 kg)' },
         ],
       };
     case 'compare_carriers':
@@ -185,13 +185,72 @@ async function executeTool(toolName: string, input: any) {
           { name: 'Maersk', avgTransitDays: 35, onTimePercent: 92 },
         ],
       };
-    case 'get_operation_details':
-      return {
-        operationCode: input.operationCode,
-        clientName: 'Importadora del Sur',
-        status: 'IN_TRANSIT',
-        vessel: 'Hamburg Süd Buenos Aires',
+    case 'get_operation_details': {
+      const detailsByCode: Record<string, any> = {
+        'OP-0142': {
+          operationCode: 'OP-0142',
+          clientName: 'Importadora del Sur SA',
+          status: 'IN_TRANSIT',
+          subStatus: 'ON_BOARD',
+          origin: 'Hamburgo',
+          destination: 'Buenos Aires',
+          vessel: 'MSC Beatrice',
+          carrier: 'MSC',
+          containerNumber: 'MSCU7831204',
+          etd: '2026-04-05',
+          eta: '2026-06-06',
+          isDelayed: true,
+          delayReason: 'Vessel reporta atraso de 48h por congestión en Hamburgo',
+        },
+        'OP-0173': {
+          operationCode: 'OP-0173',
+          clientName: 'Quest Industries',
+          status: 'BOOKING',
+          subStatus: 'BOOKING_CONFIRMED',
+          origin: 'Shanghai',
+          destination: 'Buenos Aires',
+          vessel: 'Maersk Buenos Aires',
+          carrier: 'Maersk',
+          containerNumber: 'MAEU3389104',
+          etd: '2026-05-12',
+          eta: '2026-06-08',
+          actionRequired: 'Cliente sin reconfirmar booking hace 4 días. Riesgo penalty $300 USD.',
+        },
+        'OP-0184': {
+          operationCode: 'OP-0184',
+          clientName: 'Distribuidora Norte SA',
+          status: 'IN_TRANSIT',
+          subStatus: 'DOCS_PENDING',
+          origin: 'Shanghai',
+          destination: 'Buenos Aires',
+          vessel: 'Hamburg Express',
+          carrier: 'Hapag-Lloyd',
+          containerNumber: 'TCLU8821704',
+          etd: '2026-04-15',
+          eta: '2026-05-12',
+          isInDispute: true,
+          disputeReason: 'Discrepancia 350 kg en BL. Multa potencial AFIP $450 USD. Corrección solicitada al agente en origen (Schenker Shanghai).',
+        },
+        'OP-23714': {
+          operationCode: 'OP-23714',
+          clientName: 'Andes Trading SA',
+          status: 'BOOKING',
+          subStatus: 'BOOKING_CONFIRMED',
+          origin: 'Hamburgo',
+          destination: 'Buenos Aires',
+          vessel: 'MSC Beatrice',
+          carrier: 'MSC',
+          containerNumber: 'TCLU8821704',
+          etd: '2026-05-02',
+          eta: '2026-05-29',
+          isInDispute: true,
+          disputeReason: 'Discrepancia 200 kg en BL provisional. Borrador de corrección a MSC listo para aprobar.',
+        },
       };
+      return detailsByCode[input.operationCode] || {
+        error: `Operación ${input.operationCode} no encontrada.`,
+      };
+    }
     default:
       return { error: `Tool not found: ${toolName}` };
   }
