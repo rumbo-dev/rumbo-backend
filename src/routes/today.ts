@@ -13,8 +13,8 @@ router.get('/', (req: Request, res: Response) => {
         operationCode: 'OP-0173',
         clientName: 'Quest Industries',
         severity: 'high',
-        headline: 'Cliente sin responder hace 7 días.',
-        impact: 'Riesgo de cancelación: $12,400 USD',
+        headline: 'Cliente sin reconfirmar booking hace 4 días.',
+        impact: 'Riesgo de cancelación: $300 USD',
       },
       {
         id: 'op_142',
@@ -22,7 +22,7 @@ router.get('/', (req: Request, res: Response) => {
         clientName: 'Importadora del Sur SA',
         severity: 'high',
         headline: 'Operación demorada 2 días — cliente debe ser informado.',
-        impact: 'Demurrage acumulando: $500 USD',
+        impact: 'Notificar al cliente demora de 48h',
       },
       {
         id: 'op_184',
@@ -30,7 +30,7 @@ router.get('/', (req: Request, res: Response) => {
         clientName: 'Distribuidora Norte SA',
         severity: 'high',
         headline: 'Discrepancia de 350kg en BL.',
-        impact: 'Multa potencial: $1,800 USD',
+        impact: 'Multa potencial: $450 USD',
       },
     ],
 
