@@ -3,3 +3,6 @@ dist/
 .env
 *.log
 .DS_Store
+
+# One-off seed and fix scripts (contain old DATABASE_URLs)
+scripts/
