@@ -140,6 +140,7 @@ model Operation {
   criticalSeverity     String?   // "high" | "medium" | "low"
   criticalHeadline     String?   // frase del título mostrada en el feed
   criticalImpact       String?   // frase del impacto mostrada en el feed
+  exposureUsd          Float?    // exposición financiera en USD (penalty, multa, riesgo)
   
   // ========== RELATIONS ==========
   tasks                Task[]

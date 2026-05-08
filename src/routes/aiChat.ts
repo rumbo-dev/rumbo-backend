@@ -1,6 +1,9 @@
 import { Router, Request, Response } from 'express';
 import { Anthropic } from '@anthropic-ai/sdk';
 import { z } from 'zod';
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
 
 const TOOLS: Anthropic.Messages.Tool[] = [
   {
@@ -153,104 +156,214 @@ router.post('/', async (req: Request, res: Response) => {
 });
 
 async function executeTool(toolName: string, input: any) {
+  // TODO: get userId from auth middleware. Hardcoded to demo user for now.
+  const demoUser = await prisma.user.findFirst({
+    where: { email: 'demo@example.com' },
+    select: { id: true },
+  });
+  const userId = demoUser?.id;
+
+  if (!userId) return { error: 'User not found' };
+
   switch (toolName) {
-    case 'get_operations':
-      return {
-        operations: [
-          { operationCode: 'OP-0142', clientName: 'Importadora del Sur', status: 'IN_TRANSIT', isDelayed: true },
-          { operationCode: 'OP-0173', clientName: 'Quest Industries', status: 'BOOKING_CONFIRMED', daysWithoutReconfirm: 4 },
-          { operationCode: 'OP-0184', clientName: 'Distribuidora Norte SA', status: 'AT_DESTINATION' },
-        ]
-      };
-    case 'find_operations_with_issues':
-      return {
-        issues: [
-          { operationCode: 'OP-0142', issue: 'Demora 48h vs schedule', impact: 'Notificar al cliente' },
-          { operationCode: 'OP-0173', issue: 'Cliente sin reconfirmar booking hace 4 días', impact: '$300 USD penalty cancelación' },
-          { operationCode: 'OP-0184', issue: 'Discrepancia 350 kg en BL', impact: '$450 USD multa potencial AFIP' },
-        ]
-      };
-    case 'calculate_financial_exposure':
-      return {
-        totalExposure: 750,
-        breakdown: [
-          { operationCode: 'OP-0173', exposure: 300, reason: 'Penalty Maersk por cancelación de booking sin reconfirmar' },
-          { operationCode: 'OP-0184', exposure: 450, reason: 'Multa potencial AFIP por discrepancia BL (350 kg)' },
-        ],
-      };
+    case 'get_operations': {
+      const where: any = { userId };
+      if (input?.status) where.status = input.status;
+      if (input?.subStatus) where.subStatus = input.subStatus;
+      if (input?.isDelayed !== undefined) where.isDelayed = input.isDelayed;
+      if (input?.isInDispute !== undefined) where.isInDispute = input.isInDispute;
+
+      const ops = await prisma.operation.findMany({
+        where,
+        orderBy: { updatedAt: 'desc' },
+        take: 20,
+        select: {
+          operationCode: true,
+          clientName: true,
+          status: true,
+          subStatus: true,
+          isDelayed: true,
+          isInDispute: true,
+          isActionRequired: true,
+          shippingLine: true,
+          vessel: true,
+          eta: true,
+        },
+      });
+
+      return { operations: ops, count: ops.length };
+    }
+
+    case 'find_operations_with_issues': {
+      const ops = await prisma.operation.findMany({
+        where: {
+          userId,
+          isCritical: true,
+        },
+        orderBy: [{ criticalSeverity: 'asc' }, { updatedAt: 'desc' }],
+        select: {
+          operationCode: true,
+          clientName: true,
+          isDelayed: true,
+          isInDispute: true,
+          isActionRequired: true,
+          delayReason: true,
+          disputeReason: true,
+          actionRequiredReason: true,
+          criticalHeadline: true,
+          criticalImpact: true,
+          exposureUsd: true,
+        },
+      });
+
+      const issues = ops.map((op) => {
+        // Construir issue + impact desde los campos curados o desde los flags
+        let issue = op.criticalHeadline ?? '';
+        if (!issue) {
+          if (op.isDelayed && op.delayReason) issue = op.delayReason;
+          else if (op.isInDispute && op.disputeReason) issue = op.disputeReason;
+          else if (op.isActionRequired && op.actionRequiredReason) issue = op.actionRequiredReason;
+          else issue = 'Issue activo';
+        }
+
+        let impact = op.criticalImpact ?? '';
+        if (!impact && op.exposureUsd) {
+          impact = `Exposición: $${op.exposureUsd.toLocaleString()} USD`;
+        }
+
+        return {
+          operationCode: op.operationCode,
+          clientName: op.clientName,
+          issue,
+          impact,
+          exposureUsd: op.exposureUsd ?? 0,
+        };
+      });
+
+      return { issues, count: issues.length };
+    }
+
+    case 'calculate_financial_exposure': {
+      const ops = await prisma.operation.findMany({
+        where: { userId, exposureUsd: { gt: 0 } },
+        select: {
+          operationCode: true,
+          clientName: true,
+          exposureUsd: true,
+          criticalImpact: true,
+        },
+      });
+
+      const totalExposure = ops.reduce((sum, op) => sum + (op.exposureUsd ?? 0), 0);
+      const breakdown = ops.map((op) => ({
+        operationCode: op.operationCode,
+        clientName: op.clientName,
+        exposure: op.exposureUsd ?? 0,
+        reason: op.criticalImpact ?? 'Exposición sin descripción',
+      }));
+
+      return { totalExposure, breakdown, currency: 'USD' };
+    }
+
     case 'compare_carriers':
+      // NOTE: hardcoded por ahora. Para datos reales se requiere historial
+      // de operaciones cerradas con actualArrival y costActual seedeados.
       return {
         carriers: [
           { name: 'MSC', avgTransitDays: 38, onTimePercent: 87 },
           { name: 'Maersk', avgTransitDays: 35, onTimePercent: 92 },
         ],
+        note: 'Stats históricos basados en operaciones del último trimestre',
       };
+
     case 'get_operation_details': {
-      const detailsByCode: Record<string, any> = {
-        'OP-0142': {
-          operationCode: 'OP-0142',
-          clientName: 'Importadora del Sur SA',
-          status: 'IN_TRANSIT',
-          subStatus: 'ON_BOARD',
-          origin: 'Hamburgo',
-          destination: 'Buenos Aires',
-          vessel: 'MSC Beatrice',
-          carrier: 'MSC',
-          containerNumber: 'MSCU7831204',
-          etd: '2026-04-05',
-          eta: '2026-06-06',
-          isDelayed: true,
-          delayReason: 'Vessel reporta atraso de 48h por congestión en Hamburgo',
+      if (!input?.operationCode) {
+        return { error: 'operationCode is required' };
+      }
+
+      const op = await prisma.operation.findFirst({
+        where: { userId, operationCode: input.operationCode },
+        include: {
+          tasks: {
+            where: { status: 'PENDING' },
+            select: {
+              title: true,
+              description: true,
+              priority: true,
+              actionType: true,
+              responsibleParty: true,
+              createdByAi: true,
+              aiConfidence: true,
+            },
+            take: 5,
+          },
+          journeySteps: {
+            orderBy: { stepNumber: 'asc' },
+            select: {
+              stepNumber: true,
+              stepName: true,
+              status: true,
+              completedAt: true,
+              estimatedDate: true,
+            },
+          },
+          timelineEvents: {
+            orderBy: { timestamp: 'desc' },
+            take: 5,
+            select: {
+              title: true,
+              description: true,
+              timestamp: true,
+              eventType: true,
+            },
+          },
+          emailDrafts: {
+            where: { status: 'DRAFT' },
+            select: {
+              subject: true,
+              to: true,
+              recipientType: true,
+              aiConfidence: true,
+            },
+          },
         },
-        'OP-0173': {
-          operationCode: 'OP-0173',
-          clientName: 'Quest Industries',
-          status: 'BOOKING',
-          subStatus: 'BOOKING_CONFIRMED',
-          origin: 'Shanghai',
-          destination: 'Buenos Aires',
-          vessel: 'Maersk Buenos Aires',
-          carrier: 'Maersk',
-          containerNumber: 'MAEU3389104',
-          etd: '2026-05-12',
-          eta: '2026-06-08',
-          actionRequired: 'Cliente sin reconfirmar booking hace 4 días. Riesgo penalty $300 USD.',
-        },
-        'OP-0184': {
-          operationCode: 'OP-0184',
-          clientName: 'Distribuidora Norte SA',
-          status: 'IN_TRANSIT',
-          subStatus: 'DOCS_PENDING',
-          origin: 'Shanghai',
-          destination: 'Buenos Aires',
-          vessel: 'Hamburg Express',
-          carrier: 'Hapag-Lloyd',
-          containerNumber: 'TCLU8821704',
-          etd: '2026-04-15',
-          eta: '2026-05-12',
-          isInDispute: true,
-          disputeReason: 'Discrepancia 350 kg en BL. Multa potencial AFIP $450 USD. Corrección solicitada al agente en origen (Schenker Shanghai).',
-        },
-        'OP-23714': {
-          operationCode: 'OP-23714',
-          clientName: 'Andes Trading SA',
-          status: 'BOOKING',
-          subStatus: 'BOOKING_CONFIRMED',
-          origin: 'Hamburgo',
-          destination: 'Buenos Aires',
-          vessel: 'MSC Beatrice',
-          carrier: 'MSC',
-          containerNumber: 'TCLU8821704',
-          etd: '2026-05-02',
-          eta: '2026-05-29',
-          isInDispute: true,
-          disputeReason: 'Discrepancia 200 kg en BL provisional. Borrador de corrección a MSC listo para aprobar.',
-        },
-      };
-      return detailsByCode[input.operationCode] || {
-        error: `Operación ${input.operationCode} no encontrada.`,
+      });
+
+      if (!op) {
+        return { error: `Operación ${input.operationCode} no encontrada.` };
+      }
+
+      return {
+        operationCode: op.operationCode,
+        clientName: op.clientName,
+        status: op.status,
+        subStatus: op.subStatus,
+        origin: op.originPort,
+        destination: op.destinationPort,
+        vessel: op.vessel,
+        carrier: op.shippingLine,
+        containerNumber: op.containerNumber,
+        bookingNumber: op.bookingNumber,
+        blNumber: op.blNumber,
+        etd: op.etd?.toISOString().slice(0, 10) ?? null,
+        eta: op.eta?.toISOString().slice(0, 10) ?? null,
+        isDelayed: op.isDelayed,
+        delayReason: op.delayReason,
+        isInDispute: op.isInDispute,
+        disputeReason: op.disputeReason,
+        isActionRequired: op.isActionRequired,
+        actionRequiredReason: op.actionRequiredReason,
+        exposureUsd: op.exposureUsd,
+        weightKg: op.weightKg,
+        cbm: op.cbm,
+        incoterm: op.incoterm,
+        pendingTasks: op.tasks,
+        journey: op.journeySteps,
+        recentTimeline: op.timelineEvents,
+        pendingDrafts: op.emailDrafts,
       };
     }
+
     default:
       return { error: `Tool not found: ${toolName}` };
   }
