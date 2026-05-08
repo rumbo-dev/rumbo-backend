@@ -135,6 +135,12 @@ model Operation {
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
   
+  // ========== CRITICALITY (para /today feed) ==========
+  isCritical           Boolean   @default(false)
+  criticalSeverity     String?   // "high" | "medium" | "low"
+  criticalHeadline     String?   // frase del título mostrada en el feed
+  criticalImpact       String?   // frase del impacto mostrada en el feed
+  
   // ========== RELATIONS ==========
   tasks                Task[]
   journeySteps         JourneyStep[]
