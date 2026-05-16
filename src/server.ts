@@ -7,6 +7,7 @@ import bcrypt from 'bcryptjs'
 import { processEmailAndUpdateOperation } from './services/EmailService.js'
 import aiChatRouter from './routes/aiChat.js'
 import todayRouter from './routes/today.js'
+import quotesRouter from './routes/quotes.js'
 
 dotenv.config()
 
@@ -21,6 +22,7 @@ app.use(express.json())
 // AI Chat route
 app.use('/api/ai/chat', aiChatRouter)
 app.use('/api/today', todayRouter)
+app.use('/api/quotes', quotesRouter)
 
 interface AuthRequest extends Request {
   userId?: string
