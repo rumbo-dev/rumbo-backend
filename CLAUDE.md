@@ -1,5 +1,7 @@
 # Rumbo Backend
 
+Lee también ROADMAP.md, DECISIONS.md y LEARNINGS.md para contexto adicional.
+
 ## Quick orientation
 Si es la primera vez que ves este repo, antes de tocar nada lee:
 1. Este archivo entero
