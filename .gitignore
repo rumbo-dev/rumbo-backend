@@ -4,5 +4,12 @@ dist/
 *.log
 .DS_Store
 
-# One-off seed and fix scripts (contain old DATABASE_URLs)
-scripts/
+# One-off seed and fix scripts (contain old DATABASE_URLs).
+# Ignoramos el contenido pero NO el directorio (con `scripts/*`, no `scripts/`),
+# para que el `!` re-incluya el archivo seleccionado. Patrón `scripts/` no
+# permite re-inclusión de hijos.
+scripts/*
+# Exception: seed-quotes.ts uses process.env.DATABASE_URL (no hardcoded URL).
+# Adelanto parcial del side task de Sprint 1 (ver ROADMAP.md / LEARNINGS.md).
+!scripts/seed-quotes.ts
+.env.production

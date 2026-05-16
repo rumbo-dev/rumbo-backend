@@ -41,7 +41,7 @@ Partido en 3 PRs (ver `DECISIONS.md` ADR-007).
 - Fix `/api/emails/webhook`: hoy hace `findMany({ take: 1 })` sin filtro — bug crítico en multi-tenant
 - Helper `requireOperationOwnedBy(orgId, opId)` para reemplazar el patrón frágil "fetch luego comparar userId"
 - Compat layer durante deploy (token viejo sigue funcionando hasta cutover)
-- Side task: versionar `scripts/` con `DATABASE_URL` como env var (no hardcoded)
+- Side task: versionar `scripts/` con `DATABASE_URL` como env var (no hardcoded). **Iniciado parcialmente en demo enhancements 2026-05-16: `scripts/seed-quotes.ts` ya está versionado con env var. El resto sigue gitignored hasta Sprint 1.**
 - Tests mínimos (vitest, primer setup del repo): auth, ownership cross-org, middleware
 
 ### PR2 — Frontend: Login real + selector de org

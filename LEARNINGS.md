@@ -143,6 +143,9 @@ Resultado: los seeds que construyeron las 4 ops curadas "que no se pueden
 borrar" no están versionados.
 **Fix:** Sprint 1 side task. Re-versionar con `DATABASE_URL` como env var
 explícita (no hardcoded).
+**Progreso parcial (2026-05-16):** `scripts/seed-quotes.ts` ya está
+versionado con la convención env-var como excepción explícita en
+`.gitignore`. Los otros scripts siguen ignorados hasta Sprint 1.
 
 ### 🟢 Sin design system formal
 **Síntoma:** CSS variables + estilos inline en JSX. Aguanta demos cortas,

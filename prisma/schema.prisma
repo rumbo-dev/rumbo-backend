@@ -39,6 +39,7 @@ model User {
   operations    Operation[]
   tasks         Task[]
   agentDecisions AgentDecision[]
+  quotes        Quote[]
 }
 
 // ============================================================================
@@ -409,4 +410,82 @@ model AgentDecision {
   @@index([operationId])
   @@index([agentName])
   @@index([createdAt])
+}
+
+// ============================================================================
+// QUOTE — Cotizaciones inbound (pre-Operation)
+// ============================================================================
+// Una Quote nace cuando un cliente solicita cotización por algún canal
+// (email, WhatsApp, formulario web). Pasa por estados de parseo, cotización
+// y envío hasta convertirse en Operation o perderse.
+
+model Quote {
+  id              String   @id @default(cuid())
+  quoteCode       String   @unique
+  userId          String
+  user            User     @relation(fields: [userId], references: [id])
+
+  // ========== INTAKE ==========
+  clientName      String
+  clientEmail     String?
+  isNewClient     Boolean  @default(false)
+  channel         String
+  // Valores: EMAIL | WHATSAPP | WEB_FORM
+  originalMessage String   @db.Text
+  receivedAt      DateTime
+
+  // ========== STATUS ==========
+  status          String   @default("WAITING_FOR_DATA")
+  // Valores: WAITING_FOR_DATA | READY_TO_QUOTE | QUOTED_DRAFT | SENT_AWAITING_CLIENT | ACCEPTED | LOST
+
+  // ========== SHIPMENT (parseado, todos opcionales) ==========
+  origin              String?
+  originCountry       String?   // ISO 2
+  destination         String?
+  destinationCountry  String?   // ISO 2
+  product             String?
+  ncmCode             String?
+  containerType       String?
+  // Valores: FCL_20GP | FCL_40GP | FCL_40HC | FCL_40RF | LCL | AIR
+  containerCount      Int?
+  weightKg            Float?
+  cbm                 Float?
+  incoterm            String?
+  readyDate           DateTime?
+  specialHandling     String?
+
+  // ========== AI PARSING ==========
+  aiParsedFields       Json?    // { fieldName: confidence (0..1) }
+  aiParsingConfidence  Float?
+  missingFields        Json?    // string[] de fields faltantes
+
+  // ========== QUOTE DETAILS (cuando QUOTED_DRAFT en adelante) ==========
+  recommendedCarrier   String?
+  recommendedReason    String?  @db.Text
+  carrierComparison    Json?    // CarrierOption[] — shape en frontend/src/types/quote.ts
+  markupPercent        Float    @default(12)
+  markupAmount         Float?   // denormalizado (= baseCarrierCost * markupPercent / 100). keep in sync si se edita.
+  baseCarrierCost      Float?
+  surchargesTotal      Float?
+  surchargesBreakdown  Json?    // { name, amount, description? }[]
+  quoteFinalUsd        Float?   // denormalizado (= baseCarrierCost + markupAmount + surchargesTotal). keep in sync si se edita.
+  quoteValidDays       Int      @default(7)
+
+  // ========== DRAFT REPLY ==========
+  draftSubject         String?
+  draftBody            String?  @db.Text
+  draftAiConfidence    Float?
+
+  // ========== CLIENT HISTORY SNAPSHOT (para sidebar) ==========
+  clientHistoryWinRate    Float?
+  clientPreferredCarrier  String?
+  clientAverageMarkup     Float?
+
+  // ========== TIMESTAMPS ==========
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([receivedAt])
 }
