@@ -9,6 +9,7 @@ import aiChatRouter from './routes/aiChat.js'
 import todayRouter from './routes/today.js'
 import quotesRouter from './routes/quotes.js'
 import agentDecisionsRouter from './routes/agentDecisions.js'
+import contractsRouter from './routes/contracts.js'
 
 dotenv.config()
 
@@ -25,6 +26,7 @@ app.use('/api/ai/chat', aiChatRouter)
 app.use('/api/today', todayRouter)
 app.use('/api/quotes', quotesRouter)
 app.use('/api/agent-decisions', agentDecisionsRouter)
+app.use('/api/contracts', contractsRouter)
 
 interface AuthRequest extends Request {
   userId?: string
