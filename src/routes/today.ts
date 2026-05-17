@@ -33,7 +33,7 @@ function addDays(d: Date, n: number): Date {
 const PERFORMANCE_KPIS = {
   processed24h: 142,
   exceptionsCaught: 11,
-  costAvoidedMtd: 24800,
+  costAvoidedMtd: 3500,
   operatorHoursSaved: 31.4,
 };
 
@@ -63,7 +63,7 @@ router.get('/', async (req: Request, res: Response) => {
     // 1. User — para MVP devolvemos el demo user
     const demoUser = await prisma.user.findFirst({
       where: { email: 'demo@example.com' },
-      select: { id: true, fullName: true },
+      select: { id: true, fullName: true, team: true },
     });
 
     const userName = demoUser?.fullName?.split(' ')[0] ?? 'Agustín';
@@ -152,7 +152,11 @@ router.get('/', async (req: Request, res: Response) => {
 
     // ============ Response ============
     res.json({
-      user: { name: userName },
+      user: {
+        name: userName,
+        fullName: demoUser?.fullName ?? 'Agustín Baiocco',
+        team: demoUser?.team ?? 'OPERATIONS',
+      },
       timestamp: new Date().toISOString(),
       critical: criticalOps.map((op) => ({
         id: op.id,
