@@ -40,6 +40,7 @@ model User {
   tasks         Task[]
   agentDecisions AgentDecision[]
   quotes        Quote[]
+  contracts     Contract[]
 }
 
 // ============================================================================
@@ -488,4 +489,39 @@ model Quote {
   @@index([userId])
   @@index([status])
   @@index([receivedAt])
+}
+
+// ============================================================================
+// CONTRACT — Contratos con carriers (rates negociados + volumen committed)
+// ============================================================================
+model Contract {
+  id                 String   @id @default(cuid())
+  contractNumber     String   @unique
+  userId             String
+  user               User     @relation(fields: [userId], references: [id])
+
+  carrier            String
+  lane               String
+  originPort         String
+  destinationPort    String
+  containerType      String
+  // Valores: FCL_20GP | FCL_40GP | FCL_40HC | FCL_40RF | LCL | AIR
+
+  rateUsd            Float
+  volumeCommittedTeu Int
+  volumeUsedTeu      Int      @default(0)
+
+  validFrom          DateTime
+  validUntil         DateTime
+
+  status             String   @default("ACTIVE")
+  // Valores: ACTIVE | EXPIRING_SOON | UNDERUTILIZED | EXPIRED
+
+  notes              String?  @db.Text
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([carrier])
 }
