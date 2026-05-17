@@ -113,6 +113,7 @@ model Operation {
   // ========== CLIENT ==========
   clientName           String
   clientEmail          String?
+  clientReference      String?   // referencia interna del cliente para esta operación
   
   // ========== CARRIER / AGENT ==========
   shippingLine         String?   // Maersk, MSC, etc

@@ -100,16 +100,44 @@ app.get('/api/operations/:id', authMiddleware, async (req: AuthRequest, res: Res
 
 app.post('/api/operations', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
-    const { operationCode, containerNumber, originPort, originCountry, destinationPort, destinationCountry, weightKg, cbm, incoterm, mode, clientName, clientEmail, shippingLine, costEstimate, priority } = req.body
-    
+    const { operationCode: providedCode, clientName, clientReference, incoterm, mode, originPort, destinationPort } = req.body
+
+    if (!clientName || typeof clientName !== 'string' || clientName.trim().length === 0) {
+      return res.status(400).json({ error: 'clientName is required' })
+    }
+
+    // Auto-generate operationCode if not provided: max(numeric part of OP-XXXX) + 1
+    let operationCode = typeof providedCode === 'string' && providedCode.trim().length > 0
+      ? providedCode.trim()
+      : null
+
+    if (!operationCode) {
+      const allOps = await prisma.operation.findMany({
+        where: { userId: req.userId! },
+        select: { operationCode: true },
+      })
+      const maxNum = allOps.reduce((max, op) => {
+        const m = op.operationCode.match(/^OP-(\d+)/)
+        const n = m ? parseInt(m[1], 10) : 0
+        return n > max ? n : max
+      }, 0)
+      operationCode = `OP-${String(maxNum + 1).padStart(4, '0')}`
+    }
+
     const operation = await prisma.operation.create({
       data: {
-        operationCode, containerNumber, originPort, originCountry, destinationPort, destinationCountry,
-        weightKg, cbm, incoterm, mode: mode || 'FCL', clientName, clientEmail, shippingLine, costEstimate, priority,
+        operationCode,
+        clientName: clientName.trim(),
+        clientReference: typeof clientReference === 'string' && clientReference.trim().length > 0 ? clientReference.trim() : null,
+        incoterm: typeof incoterm === 'string' && incoterm.length > 0 ? incoterm : null,
+        mode: typeof mode === 'string' && mode.length > 0 ? mode : 'FCL',
+        originPort: typeof originPort === 'string' && originPort.trim().length > 0 ? originPort.trim() : null,
+        destinationPort: typeof destinationPort === 'string' && destinationPort.trim().length > 0 ? destinationPort.trim() : null,
         userId: req.userId!,
-        subStatus: 'BOOKING_PENDING',
-        currentOwner: 'CUSTOMER',
-        status: 'BOOKING',
+        status: 'QUOTING',
+        subStatus: 'NEW_QUOTE',
+        currentOwner: 'SALES',
+        priority: 'NORMAL',
       },
     })
     
