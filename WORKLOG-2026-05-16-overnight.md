@@ -264,3 +264,218 @@ DATABASE_URL="..." npx tsx scripts/seed-contracts.ts        # 8 contracts
 ---
 
 Worklog creado autónomamente durante el overnight de 2026-05-16.
+
+---
+
+## Fixes round 2 — 2026-05-17
+
+Pase de visual QA después del overnight. 8 issues + side task. Trabajados
+directo en `main` (no branches por ser fixes chicos).
+
+### Issue #1 — Cierre (diagnóstico OP-0184 desaparecidas)
+
+**Status**: ✅ Confirmado falso positivo + side task aplicado.
+
+Las 4 ops curadas **nunca desaparecieron**. Query directo a BD confirmó:
+- OP-0184 Distribuidora Norte SA (IN_TRANSIT, isCritical)
+- OP-0173 Quest Industries (BOOKING, isCritical)
+- OP-0142 Importadora del Sur SA (IN_TRANSIT, isCritical)
+- OP-23714 Andes Trading SA (BOOKING)
+
+La "desaparición" era JWT expirado en el browser — el endpoint `/api/operations/:id`
+requiere auth, y al expirar el token tira 401 que el componente renderiza como
+"no encontrado". Usuario re-logueó y la data reapareció.
+
+**Side task aplicado**: `prisma/seed.ts` (que tiene `deleteMany` sobre
+User/Operation/Task/JourneyStep/TimelineEvent) ahora tiene un guard
+`if (NODE_ENV === 'production')` al inicio que aborta con error.
+SHA: `c783732`.
+
+### Issue #2 — Reordenar /today
+
+**Status**: ✅ Aplicado.
+
+Orden final: Performance → Críticas → Suggested → Agent+Growth → Arriving → Yesterday.
+
+**Commits (frontend)**:
+- `2631004` fix(today): reorder sections per visual QA (#2)
+
+**Archivos**: `src/app/today/page.tsx`
+
+### Issue #3 — Cost avoided 24800 → 3500
+
+**Status**: ✅ Aplicado (combinado con #4 backend).
+
+**Commits (backend)**:
+- `a9bf179` fix(today): expose user.fullName + team; lower costAvoided to $3,500
+
+**Archivos**: `src/routes/today.ts`
+
+Verificado en prod: `/api/today` devuelve `"costAvoidedMtd":3500`.
+
+### Issue #4 — Nombre consistente "Agustín Baiocco"
+
+**Status**: ✅ Aplicado.
+
+DB ya tenía `fullName="Agustín Baiocco"` para demo@example.com. El problema
+estaba en el Sidebar que hardcodeaba "Juan Pérez / Operations / JP".
+
+**Cambios**:
+- Backend: `/api/today` ahora devuelve `user.fullName` y `user.team` (no
+  solo `user.name` que es el firstName)
+- Frontend: Sidebar fetchea `/api/today` en mount, computa iniciales del
+  fullName, formatea team via diccionario (OPERATIONS → "Operaciones", etc.)
+
+**Commits**:
+- backend `a9bf179` (combinado con #3)
+- frontend `95fbdd8` fix(sidebar): read user fullName + team from /api/today (#4)
+
+**Archivos**: `src/routes/today.ts`, `src/components/Sidebar.tsx`
+
+Verificado en prod: `/api/today` devuelve `"fullName":"Agustín Baiocco"`.
+
+### Issue #5 — Demo Mode /quotes narrativa Q-0204
+
+**Status**: ✅ Aplicado.
+
+Reemplazado el sequence de 12 toasts genéricos (Quest Industries WhatsApp)
+por la narrativa específica de Q-0204 (Andes Trading email → MSC $3,800
+contrato → surcharges → $4,881 final). Modal: "1 minuto 30 segundos.
+45 minutos ahorrados vs manual."
+
+**Commits (frontend)**:
+- `e4507e9` fix(quotes): demo mode toasts ahora narran Q-0204 Andes Trading (#5)
+
+**Archivos**: `src/app/quotes/page.tsx`
+
+### Issue #6 — Traducciones EN → ES
+
+**Status**: ✅ Aplicado.
+
+Pase de traducción en 9 archivos:
+- `PerformanceKpis`: Exceptions caught → Excepciones detectadas, Cost avoided → Costo evitado, Horas ahorradas → Horas operativas ahorradas
+- `CarrierComparisonTable`: Transit → Tránsito, Sailings/sem → Salidas/sem, On-time 12m → Puntualidad 12m, Rate contrato → Tarifa contrato, Spot → Tarifa spot, Status → Estado
+- `contracts/page`: Total committed → Total comprometido, Container → Tipo de contenedor, Rate → Tarifa, Lane → Ruta, Vence → Vigente hasta
+- `contracts/[id]/page`: Container type → Tipo de contenedor, Rate USD → Tarifa USD, Volumen committed → Volumen comprometido, Vigencia desde/hasta → Vigente desde/hasta
+- `quotes/page` + `QuoteSidebar`: Win rate → Tasa de cierre
+- `QuoteSidebar` + `AgentActivityFeed`: Agent activity → Actividad de agentes
+- `GrowthOpportunitiesCard`: Growth opportunities → Oportunidades de crecimiento
+
+Términos del rubro mantenidos: FCL/LCL/FOB/CIF/EXW, TEU, BL, ETA/ETD, WhatsApp,
+Demo Mode, Carrier, Pricing, Spot, Markup, Surcharges.
+
+**Commits (frontend)**:
+- `6f03d1f` fix(i18n): translate remaining English terms to Spanish (#6)
+
+### Issue #7 — Fix OP-0184 timeline y multas
+
+**Status**: ✅ Aplicado en BD prod.
+
+**Cambios**:
+- `criticalImpact`: "Multa potencial: $450 USD" → "Multa potencial: $930 USD (Amendment Fee al carrier $300 + Multa AFIP declaración inexacta $450 + Almacenaje extra terminal $180)"
+- `exposureUsd`: 450 → 930
+- Timeline rehecha (5 events vs 4 anteriores):
+  - 8 abr → Operación creada
+  - 10 abr → Booking confirmado por Hapag-Lloyd
+  - 14 abr → Cliente envió Packing List + Commercial Invoice (nuevo)
+  - 16 abr → BL recibido del agente en origen (Schenker Shanghai) (antes: del carrier)
+  - 16 abr → ⚠ Discrepancia detectada (antes: 2 may)
+
+**Implementado vía** `scripts/fix-op-0184.ts` (versionado, env-var based,
+con excepción en `.gitignore`). Aplicado en BD prod durante esta sesión.
+
+**Commits (backend)**:
+- `c4f0827` fix(op-0184): timeline (BL del agente, discrepancia mismo día) + multa breakdown (#7)
+
+### Issue #8 — Simplificar formulario "Nueva operación"
+
+**Status**: ✅ Aplicado.
+
+**Reporte previo (qué tenía el formulario)**:
+- Está en `src/app/dashboard/page.tsx` líneas 469-498 (modal embebido)
+- Se dispara desde sidebar `+ Nueva operación` o desde botones del dashboard
+- Tenía 12 campos TODOS required: operationCode, containerNumber, clientName,
+  shippingLine (Carrier), originPort, originCountry (ISO), destinationPort,
+  destinationCountry (ISO), weightKg, costEstimate (USD), incoterm (FOB/CIF/EXW/DDP),
+  mode (FCL/LCL/AIR/LAND)
+- Submit hacía POST a `/api/operations` con todos los campos
+
+**Cambios aplicados**:
+
+Backend:
+- Schema: `Operation.clientReference String?` agregado (aditivo, optional)
+- `prisma db push` aplicado a prod (no data loss)
+- `POST /api/operations`: `operationCode` ahora opcional — si no se provee,
+  auto-genera el siguiente OP-NNNN buscando el max del user. Validación:
+  solo `clientName` es required. Defaults: status=QUOTING, subStatus=NEW_QUOTE,
+  currentOwner=SALES, priority=NORMAL, mode='FCL'.
+
+Frontend:
+- Form ahora tiene 7 campos visibles + 1 placeholder readonly:
+  - **Obligatorios (sección)**:
+    - Código de operación (placeholder gris: "Se asigna automáticamente al crear")
+    - Cliente
+    - Referencia del cliente (nuevo campo, mapped a clientReference)
+  - **Opcionales (sección)**:
+    - Incoterm dropdown (FOB/CIF/EXW/DDP/DAP — agregado DAP)
+    - Modo dropdown (FCL/LCL/AIR — sin LAND)
+    - Puerto de origen (texto libre)
+    - Puerto de destino (texto libre)
+- Submit handler manda solo los 7 campos relevantes
+
+**Commits**:
+- backend `9c09566` feat(operations): simplify POST + add clientReference (#8)
+- frontend `da84e0a` fix(dashboard): simplify 'Nueva operación' form to 7 fields (#8)
+
+### Cleanup paralelo
+
+- `28b6f4e` (frontend) chore: remove page.tsx.bakE1 backup committed by accident
+  - Se había colado en el commit de i18n por `git add -A`. Era cruft viejo
+    flagado en LEARNINGS.md para limpieza.
+
+### Estado deploys post-round-2
+
+Verificado a las ~hora del worklog round 2 después de todos los pushes:
+
+| Endpoint / Ruta | HTTP | Notas |
+|---|---|---|
+| `/api/today` | 200 | `fullName: Agustín Baiocco` + `costAvoidedMtd: 3500` |
+| `/api/quotes` | 200 | 5 quotes |
+| OP-0184 DB | ✅ | 5 timeline events + `exposureUsd: 930` |
+
+### Visual QA pendiente (round 2)
+
+Para verificar en browser cuando esté disponible:
+
+- [ ] `/today` orden: Performance → Críticas → Suggested → Agent+Growth → Arriving → Yesterday
+- [ ] Sidebar muestra "Agustín Baiocco / Operaciones" con iniciales "AB"
+- [ ] `/today` KPI cost avoided dice `$3,500` (no `$24,800`)
+- [ ] `/quotes` Demo Mode al clickear corre los 12 toasts nuevos de Andes Trading
+- [ ] Modal final del Demo Mode dice "1 minuto 30 segundos. 45 minutos ahorrados vs manual."
+- [ ] `/operations/OP-0184` timeline muestra los 5 events con fechas correctas
+- [ ] `/operations/OP-0184` criticalImpact muestra el breakdown completo de $930
+- [ ] Click en una crítica de `/today` navega bien a `/operations/OP-XXXX`
+- [ ] CarrierComparisonTable columnas: Tránsito, Salidas/sem, Puntualidad 12m, Tarifa contrato, Tarifa spot, Estado
+- [ ] `/contracts` tabla columnas: Tipo de contenedor, Tarifa, Vigente hasta, Estado
+- [ ] `/contracts/[id]` data cells: Tipo de contenedor, Tarifa USD, Volumen comprometido, Vigente desde/hasta
+- [ ] `/quotes` KPI dice "Tasa de cierre 30d"
+- [ ] Sidebar `+ Nueva operación` abre el modal con 7 campos (3 obligatorios + 4 opcionales)
+- [ ] Submit del form con solo Cliente + Referencia → crea operación con OP-XXXX auto, status QUOTING, subStatus NEW_QUOTE
+
+### Commits resumen round 2
+
+```
+backend:
+  c783732 chore(seed): guard prisma/seed.ts against production runs
+  9c09566 feat(operations): simplify POST /api/operations + add clientReference field
+  c4f0827 fix(op-0184): timeline + multa breakdown
+  a9bf179 fix(today): expose user.fullName + team; lower costAvoided to $3,500
+
+frontend:
+  28b6f4e chore: remove page.tsx.bakE1 backup
+  da84e0a fix(dashboard): simplify 'Nueva operación' form to 7 fields
+  6f03d1f fix(i18n): translate remaining English terms to Spanish
+  e4507e9 fix(quotes): demo mode toasts narran Q-0204 Andes Trading
+  2631004 fix(today): reorder sections per visual QA
+  95fbdd8 fix(sidebar): read user fullName + team from /api/today
+```
