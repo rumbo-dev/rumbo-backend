@@ -1,6 +1,19 @@
 import { PrismaClient } from '@prisma/client'
 import bcrypt from 'bcryptjs'
 
+// ============================================================================
+// GUARD: este seed hace deleteMany sobre Operation/Task/User/etc.
+// Bloqueado en producción para evitar pérdida de las 4 ops curadas
+// (OP-0142, 0173, 0184, 23714) y resto de la BD.
+// Para correr local: NODE_ENV=development npm run db:seed
+// ============================================================================
+if (process.env.NODE_ENV === 'production') {
+  console.error('❌ prisma/seed.ts blocked in production — would wipe all data.')
+  console.error('   This script does deleteMany on User/Operation/Task/JourneyStep/TimelineEvent.')
+  console.error('   If you really need to reseed prod (you almost certainly do not), remove this guard.')
+  process.exit(1)
+}
+
 const prisma = new PrismaClient()
 
 async function main() {
