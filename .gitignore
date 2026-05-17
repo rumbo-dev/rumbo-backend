@@ -14,4 +14,5 @@ scripts/*
 !scripts/seed-quotes.ts
 !scripts/seed-agent-decisions.ts
 !scripts/seed-contracts.ts
+!scripts/fix-op-0184.ts
 .env.production
