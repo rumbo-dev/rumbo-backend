@@ -12,4 +12,5 @@ scripts/*
 # Exception: seed-quotes.ts uses process.env.DATABASE_URL (no hardcoded URL).
 # Adelanto parcial del side task de Sprint 1 (ver ROADMAP.md / LEARNINGS.md).
 !scripts/seed-quotes.ts
+!scripts/seed-agent-decisions.ts
 .env.production
