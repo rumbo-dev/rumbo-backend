@@ -8,6 +8,7 @@ import { processEmailAndUpdateOperation } from './services/EmailService.js'
 import aiChatRouter from './routes/aiChat.js'
 import todayRouter from './routes/today.js'
 import quotesRouter from './routes/quotes.js'
+import agentDecisionsRouter from './routes/agentDecisions.js'
 
 dotenv.config()
 
@@ -23,6 +24,7 @@ app.use(express.json())
 app.use('/api/ai/chat', aiChatRouter)
 app.use('/api/today', todayRouter)
 app.use('/api/quotes', quotesRouter)
+app.use('/api/agent-decisions', agentDecisionsRouter)
 
 interface AuthRequest extends Request {
   userId?: string
