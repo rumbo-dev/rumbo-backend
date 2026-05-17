@@ -26,6 +26,36 @@ function addDays(d: Date, n: number): Date {
   return r;
 }
 
+// ============ Hardcoded enhancements (demo data) ============
+// Estos bloques alimentan el dashboard mejorado de /today.
+// Cuando el pipeline real esté wired (Sprint 2+), se reemplazan por queries.
+
+const PERFORMANCE_KPIS = {
+  processed24h: 142,
+  exceptionsCaught: 11,
+  costAvoidedMtd: 24800,
+  operatorHoursSaved: 31.4,
+};
+
+const AGENT_ACTIVITY = [
+  { agent: 'READ',   action: 'Parsed BL de Maersk · matched a OP-0156',                          minutesAgo: 2,  operationCode: 'OP-0156', decisionId: 'ad-001' },
+  { agent: 'WATCH',  action: 'Flagged demurrage risk en OP-0142 · escalated to critical',         minutesAgo: 7,  operationCode: 'OP-0142', decisionId: 'ad-002' },
+  { agent: 'CLEAR',  action: 'Validated 3 filings against AFIP tariff codes',                     minutesAgo: 14, decisionId: 'ad-003' },
+  { agent: 'QUOTE',  action: 'Drafted reply for Quest Industries · Shanghai → BA',                minutesAgo: 22, decisionId: 'ad-004' },
+  { agent: 'REPLY',  action: 'Answered ETA query on WhatsApp · Spanish',                          minutesAgo: 31, decisionId: 'ad-005' },
+  { agent: 'RANK',   action: 'Reordered queue · 4 ops moved up by cost-at-risk',                  minutesAgo: 38, decisionId: 'ad-006' },
+  { agent: 'CLEAR',  action: 'Caught NCM mismatch on OP-0184 · escalated',                        minutesAgo: 45, operationCode: 'OP-0184', decisionId: 'ad-007' },
+  { agent: 'READ',   action: 'Processed 12 inbound emails',                                       minutesAgo: 52, decisionId: 'ad-008' },
+  { agent: 'GROWTH', action: 'Detected churn risk: Quest Industries no cotizó hace 14 días',       minutesAgo: 68, decisionId: 'ad-009' },
+  { agent: 'QUOTE',  action: 'Recommended MSC over Maersk para Andes Trading · Q-0204',           minutesAgo: 80, decisionId: 'ad-010' },
+];
+
+const GROWTH_OPPORTUNITIES = [
+  { type: 'churn_risk',     client: 'Quest Industries',           message: 'No cotizó hace 14 días — riesgo de churn' },
+  { type: 'lane_expansion', client: 'Importadora del Sur',         message: 'Podría cotizar Asia-BUE (nueva lane)' },
+  { type: 'lost_quote',     client: '2 lost quotes',              message: 'Vencen mañana — re-pursue ahora' },
+];
+
 // ============ Handler ============
 
 router.get('/', async (req: Request, res: Response) => {
@@ -139,6 +169,9 @@ router.get('/', async (req: Request, res: Response) => {
       },
       arrivingThisWeek,
       yesterdayStats,
+      kpis: PERFORMANCE_KPIS,
+      agentActivity: AGENT_ACTIVITY,
+      growthOpportunities: GROWTH_OPPORTUNITIES,
     });
   } catch (err) {
     console.error('[/api/today] error:', err);
