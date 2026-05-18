@@ -191,27 +191,30 @@ Jorge — Andes Trading`,
 
     draftSubject:
       "Cotización Q-0204 — Hamburgo → Buenos Aires (1×40'HC) — Vigencia 7 días",
-    draftBody: `Hola Jorge, espero que andés bien.
+    draftBody: `Hola Jorge,
 
-Te paso la cotización para el cargo Hamburgo → Buenos Aires (1×40'HC, repuestos automotores, NCM 8708.30.90, 18.400 kg / 32 m³, FOB, ready 25/05).
+Tenemos lista la cotización para tu carga de repuestos automotores Hamburgo → Buenos Aires:
 
-Cotización final: USD 4.881
-Vigencia: 7 días corridos
+**Detalles del shipment:**
+- 1×40' HC · 18.400 kg · 32 CBM
+- Origen: Hamburgo · Destino: Buenos Aires
+- ETD estimado: 1 jun · ETA estimado: 28 jun
+- Transit: 27 días (servicio directo)
+- Incoterm: FOB
 
-Te recomiendo ir con MSC ($3.800 contrato, transit 27d, on-time 87% últimos 12 meses). Aunque hay opciones spot algo más baratas, MSC nos da:
-• Transit predecible (CMA-CGM sería 32d con transbordo en Algeciras)
-• Cupo del contrato anual disponible — nos quedan 240 TEU para Q2/Q3
-• Historial sin incidencias con tu cargo
+**Pricing:**
+- Flete marítimo: USD 3.800
+- Recargos (BAF, THC origen/destino, doc fee, ISPS): USD 625
+- Servicios de gestión Rumbo: incluidos
+- **Total: USD 4.881**
 
-Detalle del costo:
-• Flete MSC: USD 3.800
-• Surcharges (BAF, THC, doc, ISPS): USD 625
-• Margen Rumbo (12%): USD 456
+Cotización válida 7 días. Te adjunto el detalle en PDF.
 
-Quedo atento a tu OK para reservar booking.
+Cualquier consulta o ajuste, escribime.
 
 Saludos,
-Agustín — Rumbo Operaciones`,
+Agustín
+Rumbo Operaciones`,
     draftAiConfidence: 0.94,
 
     clientHistoryWinRate: 0.78,
