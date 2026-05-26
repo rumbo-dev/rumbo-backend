@@ -1,9 +1,8 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
 import { Anthropic } from '@anthropic-ai/sdk';
 import { z } from 'zod';
-import { PrismaClient } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prismaClient.js';
+import { optionalAuthMiddleware, type AuthRequest } from '../lib/auth.js';
 
 const TOOLS: Anthropic.Messages.Tool[] = [
   {
@@ -74,13 +73,20 @@ PRINCIPIOS:
 
 const router = Router();
 
+// Compat layer (PR1): AIChatButton aún no manda Authorization (CLAUDE.md
+// frontend lo documenta). optionalAuth resuelve la Demo Org si no hay
+// token. PR3 lo cambia a authMiddleware estricto + el frontend tiene que
+// mandar token en la SSE call.
+router.use(optionalAuthMiddleware);
+
 const aiChatRequestSchema = z.object({
   question: z.string().min(1),
 });
 
-router.post('/', async (req: Request, res: Response) => {
+router.post('/', async (req: AuthRequest, res: Response) => {
   try {
     const { question } = aiChatRequestSchema.parse(req.body);
+    const organizationId = req.organizationId!;
 
     const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -121,7 +127,7 @@ router.post('/', async (req: Request, res: Response) => {
           toolUseBlocks.map(async (block: any) => ({
             type: 'tool_result' as const,
             tool_use_id: block.id,
-            content: JSON.stringify(await executeTool(block.name, block.input)),
+            content: JSON.stringify(await executeTool(block.name, block.input, organizationId)),
           }))
         );
 
@@ -155,19 +161,12 @@ router.post('/', async (req: Request, res: Response) => {
   }
 });
 
-async function executeTool(toolName: string, input: any) {
-  // TODO: get userId from auth middleware. Hardcoded to demo user for now.
-  const demoUser = await prisma.user.findFirst({
-    where: { email: 'demo@example.com' },
-    select: { id: true },
-  });
-  const userId = demoUser?.id;
-
-  if (!userId) return { error: 'User not found' };
+async function executeTool(toolName: string, input: any, organizationId: string) {
+  if (!organizationId) return { error: 'No organization context' };
 
   switch (toolName) {
     case 'get_operations': {
-      const where: any = { userId };
+      const where: any = { organizationId };
       if (input?.status) where.status = input.status;
       if (input?.subStatus) where.subStatus = input.subStatus;
       if (input?.isDelayed !== undefined) where.isDelayed = input.isDelayed;
@@ -197,7 +196,7 @@ async function executeTool(toolName: string, input: any) {
     case 'find_operations_with_issues': {
       const ops = await prisma.operation.findMany({
         where: {
-          userId,
+          organizationId,
           isCritical: true,
         },
         orderBy: [{ criticalSeverity: 'asc' }, { updatedAt: 'desc' }],
@@ -245,7 +244,7 @@ async function executeTool(toolName: string, input: any) {
 
     case 'calculate_financial_exposure': {
       const ops = await prisma.operation.findMany({
-        where: { userId, exposureUsd: { gt: 0 } },
+        where: { organizationId, exposureUsd: { gt: 0 } },
         select: {
           operationCode: true,
           clientName: true,
@@ -282,7 +281,7 @@ async function executeTool(toolName: string, input: any) {
       }
 
       const op = await prisma.operation.findFirst({
-        where: { userId, operationCode: input.operationCode },
+        where: { organizationId, operationCode: input.operationCode },
         include: {
           tasks: {
             where: { status: 'PENDING' },

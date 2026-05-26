@@ -1,8 +1,14 @@
-import { Router, Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import { Router, Response } from 'express';
+import { prisma } from '../lib/prismaClient.js';
+import { optionalAuthMiddleware, type AuthRequest } from '../lib/auth.js';
 
 const router = Router();
-const prisma = new PrismaClient();
+
+// Compat layer (PR1): /today hoy se llama sin Authorization desde el
+// frontend (CLAUDE.md backend lo documenta). optionalAuth resuelve la
+// Demo Org si no hay token; con token usa la org del user. PR3 lo cambia
+// a authMiddleware estricto.
+router.use(optionalAuthMiddleware);
 
 // ============ Helpers ============
 
@@ -58,20 +64,37 @@ const GROWTH_OPPORTUNITIES = [
 
 // ============ Handler ============
 
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', async (req: AuthRequest, res: Response) => {
   try {
-    // 1. User — para MVP devolvemos el demo user
-    const demoUser = await prisma.user.findFirst({
-      where: { email: 'demo@example.com' },
-      select: { id: true, fullName: true, team: true },
-    });
+    const organizationId = req.organizationId!;
 
-    const userName = demoUser?.fullName?.split(' ')[0] ?? 'Agustín';
+    // 1. User — leemos del JWT (req.userId). Si no hay user (token-less
+    // optional path para Demo Org), buscamos el OWNER de la Demo Org como
+    // identidad visible para el sidebar (fallback histórico).
+    let user: { id: string; fullName: string; team: string } | null = null;
+    if (req.userId) {
+      const u = await prisma.user.findUnique({
+        where: { id: req.userId },
+        select: { id: true, fullName: true, team: true },
+      });
+      if (u) user = u;
+    }
+    if (!user) {
+      // Fallback compat layer: tomamos el OWNER de la Demo Org (típicamente
+      // demo@example.com). PR3 quita esta rama.
+      const owner = await prisma.membership.findFirst({
+        where: { organizationId, role: 'OWNER' },
+        include: { user: { select: { id: true, fullName: true, team: true } } },
+      });
+      if (owner) user = owner.user;
+    }
+
+    const userName = user?.fullName?.split(' ')[0] ?? 'Agustín';
 
     // 2. Critical operations
     const criticalOps = await prisma.operation.findMany({
       where: {
-        userId: demoUser?.id,
+        organizationId,
         isCritical: true,
       },
       orderBy: [
@@ -88,11 +111,11 @@ router.get('/', async (req: Request, res: Response) => {
       },
     });
 
-    // 3. Pending suggestions = AI-generated tasks PENDING + drafts in DRAFT status
+    // 3. Pending suggestions = AI-generated tasks PENDING + drafts en DRAFT status
     const [aiTasksCount, draftsCount] = await Promise.all([
       prisma.task.count({
         where: {
-          userId: demoUser?.id,
+          organizationId,
           createdByAi: true,
           status: 'PENDING',
         },
@@ -100,7 +123,7 @@ router.get('/', async (req: Request, res: Response) => {
       prisma.emailDraft.count({
         where: {
           status: 'DRAFT',
-          operation: { userId: demoUser?.id },
+          organizationId,
         },
       }),
     ]);
@@ -114,7 +137,7 @@ router.get('/', async (req: Request, res: Response) => {
 
     const arrivingOps = await prisma.operation.findMany({
       where: {
-        userId: demoUser?.id,
+        organizationId,
         eta: { gte: today, lt: weekFromNow },
       },
       select: { eta: true, blNumber: true },
@@ -154,8 +177,8 @@ router.get('/', async (req: Request, res: Response) => {
     res.json({
       user: {
         name: userName,
-        fullName: demoUser?.fullName ?? 'Agustín Baiocco',
-        team: demoUser?.team ?? 'OPERATIONS',
+        fullName: user?.fullName ?? 'Agustín Baiocco',
+        team: user?.team ?? 'OPERATIONS',
       },
       timestamp: new Date().toISOString(),
       critical: criticalOps.map((op) => ({
