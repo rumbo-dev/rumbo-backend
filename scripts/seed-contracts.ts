@@ -145,8 +145,19 @@ async function main() {
   const demoUser = await prisma.user.findUnique({ where: { email: DEMO_EMAIL } })
   if (!demoUser) throw new Error(`No existe demo user (${DEMO_EMAIL})`)
 
+  // Sprint 1 multi-tenant: organizationId requerido. --orgSlug=<slug> opcional.
+  const orgSlug =
+    process.argv.find((a) => a.startsWith('--orgSlug='))?.split('=')[1] ?? 'demo-org'
+  const org = await prisma.organization.findUnique({ where: { slug: orgSlug } })
+  if (!org) {
+    throw new Error(
+      `No existe la Organization slug=${orgSlug}. Correr primero scripts/sprint1-migrate-to-multitenant.ts`,
+    )
+  }
+  console.log(`✓ Organization: ${org.name} (slug ${org.slug})\n`)
+
   for (const c of contracts) {
-    const data: any = { ...c, userId: demoUser.id }
+    const data: any = { ...c, userId: demoUser.id, organizationId: org.id }
     const result = await prisma.contract.upsert({
       where: { contractNumber: c.contractNumber },
       update: data,
@@ -155,7 +166,7 @@ async function main() {
     console.log(`  ✓ ${result.contractNumber} · ${result.carrier} · ${result.status}`)
   }
 
-  const total = await prisma.contract.count({ where: { userId: demoUser.id } })
+  const total = await prisma.contract.count({ where: { organizationId: org.id } })
   console.log(`\n✅ Seed complete. Total contracts: ${total}`)
 }
 

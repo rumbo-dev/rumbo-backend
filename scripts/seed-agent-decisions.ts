@@ -287,12 +287,24 @@ async function main() {
   const demoUser = await prisma.user.findUnique({ where: { email: DEMO_EMAIL } })
   if (!demoUser) throw new Error(`No existe demo user (${DEMO_EMAIL})`)
 
-  // Resolver operationCodes a operationIds
+  // Sprint 1 multi-tenant: organizationId requerido. --orgSlug=<slug> opcional.
+  const orgSlug =
+    process.argv.find((a) => a.startsWith('--orgSlug='))?.split('=')[1] ?? 'demo-org'
+  const org = await prisma.organization.findUnique({ where: { slug: orgSlug } })
+  if (!org) {
+    throw new Error(
+      `No existe la Organization slug=${orgSlug}. Correr primero scripts/sprint1-migrate-to-multitenant.ts`,
+    )
+  }
+  console.log(`✓ Organization: ${org.name} (slug ${org.slug})\n`)
+
+  // Resolver operationCodes a operationIds (scoped a la org para evitar
+  // un eventual conflict si dos orgs tienen el mismo código).
   const opCodes = decisions
     .map((d: any) => d.operationCode)
     .filter((c: string | undefined): c is string => !!c)
   const ops = await prisma.operation.findMany({
-    where: { operationCode: { in: opCodes } },
+    where: { operationCode: { in: opCodes }, organizationId: org.id },
     select: { id: true, operationCode: true },
   })
   const opIdByCode: Record<string, string> = {}
@@ -303,6 +315,7 @@ async function main() {
     const data: any = {
       ...rest,
       userId: demoUser.id,
+      organizationId: org.id,
       createdAt: minsAgo(minutesAgo),
       operationId: operationCode ? opIdByCode[operationCode] || null : null,
     }
@@ -314,8 +327,8 @@ async function main() {
     console.log(`  ✓ ${result.id} · ${result.agentName} · ${result.decisionType}`)
   }
 
-  const total = await prisma.agentDecision.count({ where: { userId: demoUser.id } })
-  console.log(`\n✅ Seed complete. Total agent decisions for ${DEMO_EMAIL}: ${total}`)
+  const total = await prisma.agentDecision.count({ where: { organizationId: org.id } })
+  console.log(`\n✅ Seed complete. Total agent decisions for org ${org.slug}: ${total}`)
 }
 
 main()

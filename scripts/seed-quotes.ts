@@ -395,11 +395,23 @@ async function main() {
       `No existe el demo user (${DEMO_EMAIL}). Seedear primero el user demo.`,
     )
   }
-  console.log(`✓ Demo user: ${demoUser.email} (${demoUser.id})\n`)
+  console.log(`✓ Demo user: ${demoUser.email} (${demoUser.id})`)
+
+  // Sprint 1 multi-tenant: cada quote también necesita organizationId.
+  // Aceptamos --orgSlug=<slug> en argv; si no, default "demo-org".
+  const orgSlug =
+    process.argv.find((a) => a.startsWith('--orgSlug='))?.split('=')[1] ?? 'demo-org'
+  const org = await prisma.organization.findUnique({ where: { slug: orgSlug } })
+  if (!org) {
+    throw new Error(
+      `No existe la Organization slug=${orgSlug}. Correr primero scripts/sprint1-migrate-to-multitenant.ts`,
+    )
+  }
+  console.log(`✓ Organization: ${org.name} (slug ${org.slug}, id ${org.id})\n`)
 
   for (const spec of quoteSpecs) {
     const { quoteCode, ...rest } = spec
-    const data: any = { ...rest, userId: demoUser.id }
+    const data: any = { ...rest, userId: demoUser.id, organizationId: org.id }
     const result = await prisma.quote.upsert({
       where: { quoteCode },
       update: data,
@@ -408,8 +420,8 @@ async function main() {
     console.log(`  ✓ ${result.quoteCode} — ${result.clientName} (${result.status})`)
   }
 
-  const total = await prisma.quote.count({ where: { userId: demoUser.id } })
-  console.log(`\n✅ Seed complete. Total quotes para ${DEMO_EMAIL}: ${total}`)
+  const total = await prisma.quote.count({ where: { organizationId: org.id } })
+  console.log(`\n✅ Seed complete. Total quotes para ${org.slug}: ${total}`)
 }
 
 main()
