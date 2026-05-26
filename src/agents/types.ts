@@ -408,6 +408,11 @@ export interface TimelineUpdaterOutput {
 export interface OrchestratorInput {
   rawEmail: string
   userId: string
+  // Multi-tenant (Sprint 1) — organización a la que pertenece este email.
+  // El Orchestrator usa este id en TODOS los creates (Operation, EmailInbound,
+  // Task, EmailDraft, AgentDecision, TimelineEvent) y en los matches de
+  // EmailParser para evitar fugas cross-tenant.
+  organizationId: string
   // Optional: existing operation context if already routed
   existingOperationId?: string
 }

@@ -9,16 +9,18 @@
 // ============================================================================
 
 import Anthropic from '@anthropic-ai/sdk'
-import { PrismaClient } from '@prisma/client'
+import { prisma } from '../../lib/prismaClient.js'
 import type { EmailParserOutput, ParsedEmail } from '../types.js'
 import { MODEL_NAMES } from '../types.js'
 
 const client = new Anthropic()
-const prisma = new PrismaClient()
 
 interface ParseEmailInput {
   rawEmail: string
   userId: string
+  // Multi-tenant (Sprint 1) — usado en los match queries para evitar
+  // que un email de la org A matchee una operación de la org B.
+  organizationId: string
   existingOperationId?: string
 }
 
@@ -167,7 +169,7 @@ Important guidelines:
       confidence: 1.0,
     }
   } else {
-    matchedOperation = await findMatchingOperation(extracted, input.userId, input.rawEmail)
+    matchedOperation = await findMatchingOperation(extracted, input.organizationId, input.rawEmail)
   }
 
   // ==========================================================================
@@ -205,13 +207,13 @@ Important guidelines:
 
 async function findMatchingOperation(
   extracted: any,
-  userId: string,
+  organizationId: string,
   rawEmail: string
 ): Promise<EmailParserOutput['matchedOperation']> {
-  // Priority 1: operationCode match
+  // Priority 1: operationCode match (scoped a la org del email)
   if (extracted.operationCode) {
     const op = await prisma.operation.findFirst({
-      where: { operationCode: extracted.operationCode, userId },
+      where: { operationCode: extracted.operationCode, organizationId },
     })
     if (op) return { operationId: op.id, matchedBy: 'operationCode', confidence: 0.98 }
   }
@@ -219,7 +221,7 @@ async function findMatchingOperation(
   // Priority 2: containerNumber match
   if (extracted.containerNumber) {
     const op = await prisma.operation.findFirst({
-      where: { containerNumber: extracted.containerNumber, userId },
+      where: { containerNumber: extracted.containerNumber, organizationId },
     })
     if (op) return { operationId: op.id, matchedBy: 'container', confidence: 0.95 }
   }
@@ -227,7 +229,7 @@ async function findMatchingOperation(
   // Priority 3: BL number match
   if (extracted.blNumber) {
     const op = await prisma.operation.findFirst({
-      where: { blNumber: extracted.blNumber, userId },
+      where: { blNumber: extracted.blNumber, organizationId },
     })
     if (op) return { operationId: op.id, matchedBy: 'bl', confidence: 0.92 }
   }
@@ -235,20 +237,21 @@ async function findMatchingOperation(
   // Priority 4: booking number match
   if (extracted.bookingNumber) {
     const op = await prisma.operation.findFirst({
-      where: { bookingNumber: extracted.bookingNumber, userId },
+      where: { bookingNumber: extracted.bookingNumber, organizationId },
     })
     if (op) return { operationId: op.id, matchedBy: 'bl', confidence: 0.9 }
   }
 
   // Priority 5: thread (In-Reply-To header)
   // TODO: implement thread matching when we save email message-ids
-  
+
   // Priority 6: sender match (if email from same sender about recent operation)
   if (extracted.fromEmail) {
     const recentEmail = await prisma.emailInbound.findFirst({
       where: {
         from: extracted.fromEmail,
         operationId: { not: null },
+        organizationId,
         receivedAt: {
           gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), // last 30 days
         },

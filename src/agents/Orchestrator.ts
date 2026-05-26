@@ -18,7 +18,7 @@
 //   const result = await processEmailWithOrchestrator({ rawEmail, userId })
 // ============================================================================
 
-import { PrismaClient } from '@prisma/client'
+import { prisma } from '../lib/prismaClient.js'
 import { parseEmail } from './specialists/EmailParser.js'
 import { classifyActions } from './specialists/ActionClassifier.js'
 import { draftEmail } from './specialists/EmailDrafter.js'
@@ -30,8 +30,6 @@ import type {
   ClassifiedAction,
   EmailDrafterOutput,
 } from './types.js'
-
-const prisma = new PrismaClient()
 
 const AUTO_APPLY_CONFIDENCE_THRESHOLD = 0.9
 
@@ -50,6 +48,7 @@ export async function processEmailWithOrchestrator(
   const parsed = await parseEmail({
     rawEmail: input.rawEmail,
     userId: input.userId,
+    organizationId: input.organizationId,
     existingOperationId: input.existingOperationId,
   })
 
@@ -60,20 +59,26 @@ export async function processEmailWithOrchestrator(
   let isNew = false
 
   if (parsed.matchedOperation) {
-    operation = await prisma.operation.findUnique({
-      where: { id: parsed.matchedOperation.operationId },
+    // Defensiva: aunque EmailParser ya scopea por org, re-verificamos en
+    // el find para que un bug futuro no fugue una op de otra org.
+    operation = await prisma.operation.findFirst({
+      where: {
+        id: parsed.matchedOperation.operationId,
+        organizationId: input.organizationId,
+      },
     })
   }
 
   if (!operation) {
     isNew = true
     console.log('[Orchestrator] Step 2: Creating new operation...')
-    
+
     const opCode = parsed.operationCode || `OP-AUTO-${Date.now().toString().slice(-6)}`
 
     operation = await prisma.operation.create({
       data: {
         userId: input.userId,
+        organizationId: input.organizationId,
         operationCode: opCode,
         containerNumber: parsed.containerNumber,
         originPort: parsed.originPort,
@@ -101,7 +106,7 @@ export async function processEmailWithOrchestrator(
     })
 
     // Crear journey steps iniciales
-    await createInitialJourneySteps(operation.id)
+    await createInitialJourneySteps(operation.id, input.organizationId)
   }
 
   // ==========================================================================
@@ -110,6 +115,7 @@ export async function processEmailWithOrchestrator(
   await prisma.emailInbound.create({
     data: {
       operationId: operation.id,
+      organizationId: input.organizationId,
       from: parsed.fromEmail || 'unknown@unknown.com',
       to: 'rumbo@rumbocorp.com',
       subject: extractSubjectFromRaw(input.rawEmail) || 'Email recibido',
@@ -155,7 +161,7 @@ export async function processEmailWithOrchestrator(
 
     // Apply auto if confidence high enough
     if (statusUpdate.confidence >= AUTO_APPLY_CONFIDENCE_THRESHOLD && statusUpdate.shouldAdvance) {
-      await applyStatusUpdate(operation.id, statusUpdate)
+      await applyStatusUpdate(operation.id, input.organizationId, statusUpdate)
     }
     // Si confidence < 0.9, queda como sugerencia (se crea task de tipo INTERNAL_DECISION)
   }
@@ -184,6 +190,7 @@ export async function processEmailWithOrchestrator(
       const dbDraft = await prisma.emailDraft.create({
         data: {
           operationId: operation.id,
+          organizationId: input.organizationId,
           to: draft.to,
           cc: draft.cc.join(', ') || null,
           subject: draft.subject,
@@ -212,6 +219,7 @@ export async function processEmailWithOrchestrator(
       data: {
         operationId: operation.id,
         userId: input.userId,
+        organizationId: input.organizationId,
         title: action.title.substring(0, 200),
         description: action.description || action.reasoning,
         actionType: action.actionType,
@@ -239,6 +247,7 @@ export async function processEmailWithOrchestrator(
   const timelineEvent = await prisma.timelineEvent.create({
     data: {
       operationId: operation.id,
+      organizationId: input.organizationId,
       title: isNew ? 'Operación creada desde email' : `Email recibido de ${parsed.fromEmail}`,
       description: extractSubjectFromRaw(input.rawEmail),
       eventType: isNew ? 'OPERATION_CREATED' : 'EMAIL_RECEIVED',
@@ -256,6 +265,7 @@ export async function processEmailWithOrchestrator(
     data: {
       operationId: operation.id,
       userId: input.userId,
+      organizationId: input.organizationId,
       agentName: 'Orchestrator',
       decisionType: 'PROCESS_EMAIL',
       inputData: { rawEmail: input.rawEmail.substring(0, 1000) },
@@ -364,7 +374,7 @@ async function buildOperationContext(operationId: string): Promise<OperationCont
   }
 }
 
-async function applyStatusUpdate(operationId: string, update: any) {
+async function applyStatusUpdate(operationId: string, organizationId: string, update: any) {
   const data: any = {}
   if (update.newSubStatus) {
     data.subStatus = update.newSubStatus
@@ -396,6 +406,7 @@ async function applyStatusUpdate(operationId: string, update: any) {
     await prisma.timelineEvent.create({
       data: {
         operationId,
+        organizationId,
         title: update.timelineEvent?.title || 'Estado actualizado',
         description: update.narrativeNote || update.reasoning,
         eventType: 'STATUS_CHANGED',
@@ -441,7 +452,7 @@ async function applyFlags(operationId: string, flags: any) {
   }
 }
 
-async function createInitialJourneySteps(operationId: string) {
+async function createInitialJourneySteps(operationId: string, organizationId: string) {
   const steps = [
     { stepNumber: 1, stepName: 'Cotización', description: 'Cotización con cliente' },
     { stepNumber: 2, stepName: 'Booking', description: 'Reserva con carrier' },
@@ -455,7 +466,7 @@ async function createInitialJourneySteps(operationId: string) {
 
   for (const step of steps) {
     await prisma.journeyStep.create({
-      data: { operationId, ...step, status: 'PENDING' },
+      data: { operationId, organizationId, ...step, status: 'PENDING' },
     })
   }
 }

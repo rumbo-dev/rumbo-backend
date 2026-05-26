@@ -1,8 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
-import { PrismaClient } from '@prisma/client'
+import { prisma } from '../lib/prismaClient.js'
 
 const client = new Anthropic()
-const prisma = new PrismaClient()
 
 export async function processEmailAndUpdateOperation(
   inboundEmail: { from: string; to: string; subject: string; body: string },
@@ -59,11 +58,13 @@ Respond with this JSON structure:
     }
 
     if (operationId) {
-      const operation = await prisma.operation.findUnique({ 
+      // Sprint 1: leemos también organizationId del operation. Todos los
+      // creates derivados heredan esa org (single source of truth).
+      const operation = await prisma.operation.findUnique({
         where: { id: operationId },
-        select: { userId: true }
+        select: { userId: true, organizationId: true },
       })
-      
+
       if (!operation) {
         throw new Error('Operation not found')
       }
@@ -72,6 +73,7 @@ Respond with this JSON structure:
       await prisma.emailInbound.create({
         data: {
           operationId,
+          organizationId: operation.organizationId,
           from: inboundEmail.from,
           to: inboundEmail.to,
           subject: inboundEmail.subject,
@@ -85,6 +87,7 @@ Respond with this JSON structure:
       await prisma.timelineEvent.create({
         data: {
           operationId,
+          organizationId: operation.organizationId,
           title: `Email recibido: ${inboundEmail.subject}`,
           eventType: 'EMAIL_RECEIVED',
           description: `De: ${inboundEmail.from}`,
@@ -100,6 +103,7 @@ Respond with this JSON structure:
               data: {
                 operationId,
                 userId: operation.userId,
+                organizationId: operation.organizationId,
                 title: taskTitle.substring(0, 200),
                 description: taskTitle,
                 priority: analysis.urgencyLevel || 'NORMAL',
@@ -118,6 +122,7 @@ Respond with this JSON structure:
         await prisma.emailDraft.create({
           data: {
             operationId,
+            organizationId: operation.organizationId,
             to: analysis.draftEmail.to || inboundEmail.from,
             subject: analysis.draftEmail.subject || `RE: ${inboundEmail.subject}`,
             body: analysis.draftEmail.body || '',
