@@ -23,6 +23,51 @@ datasource db {
 }
 
 // ============================================================================
+// ORGANIZATION / MEMBERSHIP — Multi-tenant (Sprint 1, ADR-001 + ADR-002)
+// ============================================================================
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  isDemo    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships    Membership[]
+  operations     Operation[]
+  tasks          Task[]
+  quotes         Quote[]
+  contracts      Contract[]
+  agentDecisions AgentDecision[]
+  emailDrafts    EmailDraft[]
+  emailsInbound  EmailInbound[]
+  timelineEvents TimelineEvent[]
+  journeySteps   JourneyStep[]
+
+  @@index([slug])
+  @@index([isDemo])
+}
+
+model Membership {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  role           String   @default("MEMBER")  // OWNER | ADMIN | MEMBER (ver ADR-002)
+  isDefault      Boolean  @default(false)
+  invitedAt      DateTime?
+  acceptedAt     DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([userId, organizationId])
+  @@index([userId])
+  @@index([organizationId])
+}
+
+// ============================================================================
 // USER / AUTH
 // ============================================================================
 
@@ -35,12 +80,18 @@ model User {
   team      String   @default("CUSTOMER")    // SALES | PRICING | CUSTOMER | OPS | ADMIN
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  
-  operations    Operation[]
-  tasks         Task[]
+
+  // Multi-tenant (Sprint 1)
+  memberships    Membership[]
+
+  // Single-tenant legacy relations — MANTENER durante el compat layer (PR1).
+  // BORRAR en PR3 cleanup una vez que el backfill esté verificado y todas las
+  // queries usen organizationId.
+  operations     Operation[]
+  tasks          Task[]
   agentDecisions AgentDecision[]
-  quotes        Quote[]
-  contracts     Contract[]
+  quotes         Quote[]
+  contracts      Contract[]
 }
 
 // ============================================================================
@@ -51,6 +102,11 @@ model Operation {
   id              String   @id @default(cuid())
   userId          String
   user            User     @relation(fields: [userId], references: [id])
+
+  // Multi-tenant (Sprint 1). Nullable durante PR1 — el backfill lo rellena.
+  // PR3 lo pasa a NOT NULL después de verificar que no hay orphans.
+  organizationId  String?
+  organization    Organization? @relation(fields: [organizationId], references: [id])
   
   // ========== IDENTIFICATION ==========
   operationCode   String   // Código real de operación (post-confirmación)
@@ -154,6 +210,10 @@ model Operation {
   agentDecisions       AgentDecision[]
   
   @@index([userId])
+  @@index([organizationId])
+  @@index([organizationId, status])
+  @@index([organizationId, isCritical])
+  @@index([organizationId, isActionRequired])
   @@index([status])
   @@index([currentOwner])
   @@index([subStatus])
@@ -170,6 +230,10 @@ model Task {
   operation         Operation @relation(fields: [operationId], references: [id], onDelete: Cascade)
   userId            String
   user              User     @relation(fields: [userId], references: [id])
+
+  // Multi-tenant (Sprint 1) — ver nota en Operation.organizationId
+  organizationId    String?
+  organization      Organization? @relation(fields: [organizationId], references: [id])
   
   // ========== TASK CONTENT ==========
   title             String
@@ -223,6 +287,8 @@ model Task {
   updatedAt         DateTime @updatedAt
   
   @@index([operationId])
+  @@index([organizationId])
+  @@index([organizationId, status])
   @@index([status])
   @@index([responsibleTeam])
   @@index([priority])
@@ -236,7 +302,11 @@ model JourneyStep {
   id            String   @id @default(cuid())
   operationId   String
   operation     Operation @relation(fields: [operationId], references: [id], onDelete: Cascade)
-  
+
+  // Multi-tenant (Sprint 1) — heredado del operation, denormalizado para queries
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id])
+
   stepNumber    Int      // orden cronológico
   stepName      String   // nombre del step (ej: "Booking Confirmation")
   description   String?  // narrativa ejecutiva
@@ -255,6 +325,7 @@ model JourneyStep {
   narrativeNote String?
   
   @@index([operationId])
+  @@index([organizationId])
   @@index([stepNumber])
 }
 
@@ -266,7 +337,11 @@ model TimelineEvent {
   id            String   @id @default(cuid())
   operationId   String
   operation     Operation @relation(fields: [operationId], references: [id], onDelete: Cascade)
-  
+
+  // Multi-tenant (Sprint 1) — denormalizado para queries
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id])
+
   title         String
   description   String?
   eventType     String
@@ -282,8 +357,10 @@ model TimelineEvent {
   toValue       String?  // valor nuevo si aplica
   
   timestamp     DateTime @default(now())
-  
+
   @@index([operationId])
+  @@index([organizationId])
+  @@index([organizationId, timestamp])
   @@index([timestamp])
 }
 
@@ -295,7 +372,11 @@ model EmailInbound {
   id            String   @id @default(cuid())
   operationId   String?
   operation     Operation? @relation(fields: [operationId], references: [id])
-  
+
+  // Multi-tenant (Sprint 1)
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id])
+
   from          String
   to            String
   cc            String?
@@ -315,8 +396,10 @@ model EmailInbound {
   
   receivedAt    DateTime @default(now())
   processedAt   DateTime?
-  
+
   @@index([operationId])
+  @@index([organizationId])
+  @@index([organizationId, status])
   @@index([status])
 }
 
@@ -329,6 +412,10 @@ model EmailDraft {
   operationId   String
   operation     Operation @relation(fields: [operationId], references: [id], onDelete: Cascade)
   taskId        String?  // si está vinculado a una task
+
+  // Multi-tenant (Sprint 1)
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id])
   
   to            String
   cc            String?
@@ -367,8 +454,10 @@ model EmailDraft {
   approvedAt    DateTime?
   sentAt        DateTime?
   rejectedAt    DateTime?
-  
+
   @@index([operationId])
+  @@index([organizationId])
+  @@index([organizationId, status])
   @@index([status])
 }
 
@@ -382,6 +471,10 @@ model AgentDecision {
   operation     Operation? @relation(fields: [operationId], references: [id])
   userId        String?
   user          User?    @relation(fields: [userId], references: [id])
+
+  // Multi-tenant (Sprint 1)
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id])
   
   // ========== DECISION CONTEXT ==========
   agentName     String   // Orchestrator | EmailParser | ActionClassifier | EmailDrafter | TimelineUpdater
@@ -408,8 +501,10 @@ model AgentDecision {
   latencyMs     Int?
   
   createdAt     DateTime @default(now())
-  
+
   @@index([operationId])
+  @@index([organizationId])
+  @@index([organizationId, agentName])
   @@index([agentName])
   @@index([createdAt])
 }
@@ -426,6 +521,10 @@ model Quote {
   quoteCode       String   @unique
   userId          String
   user            User     @relation(fields: [userId], references: [id])
+
+  // Multi-tenant (Sprint 1)
+  organizationId  String?
+  organization    Organization? @relation(fields: [organizationId], references: [id])
 
   // ========== INTAKE ==========
   clientName      String
@@ -488,6 +587,8 @@ model Quote {
   updatedAt        DateTime @updatedAt
 
   @@index([userId])
+  @@index([organizationId])
+  @@index([organizationId, status])
   @@index([status])
   @@index([receivedAt])
 }
@@ -500,6 +601,10 @@ model Contract {
   contractNumber     String   @unique
   userId             String
   user               User     @relation(fields: [userId], references: [id])
+
+  // Multi-tenant (Sprint 1)
+  organizationId     String?
+  organization       Organization? @relation(fields: [organizationId], references: [id])
 
   carrier            String
   lane               String
@@ -523,6 +628,8 @@ model Contract {
   updatedAt          DateTime @updatedAt
 
   @@index([userId])
+  @@index([organizationId])
+  @@index([organizationId, status])
   @@index([status])
   @@index([carrier])
 }
