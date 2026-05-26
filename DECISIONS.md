@@ -203,3 +203,23 @@ open source.
 
 **Por qué:** Control total sobre prompts, tool use, caching. Wrappers suelen
 retrasar features nuevas (prompt caching, extended thinking).
+
+---
+
+## ADR-010 — Sprint 1 con Claude Code, auditoría de ingeniero antes de clientes con data real
+
+**Fecha:** 2026-05-22
+
+**Contexto:** Agustín (CPO) no revisa código, valida testeando experiencia.
+Sprint 1 (multi-tenant + auth) es la zona más delicada del proyecto — bugs
+de seguridad no se ven testeando.
+
+**Decisión:** Sprint 1 se implementa con Claude Code. Antes de cargar data
+real de un cliente (ej. Free Customs en la demo comprometida), un ingeniero
+debe auditar el código de multi-tenant y auth.
+
+**Razón:** no frenar el avance, pero poner un checkpoint de seguridad antes
+de que un error sea costoso (data de un cliente visible para otro).
+
+**Mitigaciones activas:** snapshot de Neon pre-Sprint-1, permisos con
+comandos destructivos en deny, git como red de seguridad.

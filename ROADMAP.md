@@ -1,38 +1,30 @@
 # Rumbo — Roadmap
 
-Última actualización: 2026-05-16
+Última actualización: 2026-05-22
 
 ## Contexto inmediato
 
-Próxima demo: **lunes 2026-05-18** con forwarder grande argentino. Entre hoy
-y la demo, foco en *demo enhancements* sobre el producto actual (sin tocar
-schema multi-tenant ni auth).
-
-Sprint 1 arranca **martes 2026-05-19**, post-demo.
-
----
-
-## Demo enhancements (2026-05-16 → 2026-05-18)
-
-Trabajo encima del producto actual, single-tenant, sin tocar auth/tenancy.
-
-1. **Página `/quotes`** con cotizaciones automáticas (mock, sin pipeline real)
-2. **Mejoras en `/today`** para matchear el dashboard del deck (KPIs, agent feed)
-3. **Modal "AI decision trace"** cuando se hace click en una acción
-
-Restricciones durante esta ventana:
-- No tocar `prisma/schema.prisma` (no agregar Organization, no romper compat)
-- No tocar `authMiddleware` ni rutas `/api/auth/*`
-- No borrar las 4 ops curadas (OP-0142, 0173, 0184, 23714)
-- Build local antes de cada push (back y front)
+Sprint 1 (multi-tenant + auth) arranca esta semana. Estado:
+- Demo del **lunes 2026-05-18** con forwarder grande argentino: ✅ ejecutada,
+  exitosa. Reunión Free Customs 2026-05-20: temperatura alta, comprometida
+  una **demo con datos reales del cliente** como próximo paso
+  (ver `LEARNINGS.md`).
+- Esa demo con data real **requiere multi-tenant**. Sprint 1 ahora tiene
+  urgencia comercial, no solo técnica.
 
 ---
 
 ## Sprint 1 — Multi-tenant + Auth (arranca 2026-05-19)
 
+> **URGENCIA DE NEGOCIO:** el próximo paso comprometido con Free Customs
+> (cliente caliente) es una demo con sus datos reales, lo cual requiere
+> multi-tenant. Sprint 1 habilita ese compromiso comercial.
+
 Partido en 3 PRs (ver `DECISIONS.md` ADR-007).
 
 ### PR1 — Backend: Organization + Auth refactor
+- **Crear una BD de desarrollo separada (Neon database branch)** para que las
+  migraciones se prueben sin tocar la BD de producción.
 - Modelo `Organization` y `Membership` en Prisma
 - `Operation.organizationId` (FK obligatorio); migración de las 4 ops a "Demo Organization"
 - Prisma extension/middleware que inyecta `organizationId` en queries (+1 día, previene ~90% de fugas cross-tenant)
@@ -92,3 +84,19 @@ Partido en 3 PRs (ver `DECISIONS.md` ADR-007).
 Forwarders argentinos / regionales de 20-200 empleados con equipos
 distribuidos entre OPS, PRICING, SALES y CUSTOMER_SUPPORT. Onboarding
 concierge para los primeros 5-10 clientes; signup público después.
+
+---
+
+## Histórico
+
+### Demo enhancements 2026-05-16 → 2026-05-18 — ✅ Completado
+
+Trabajo encima del producto actual, single-tenant, sin tocar auth/tenancy.
+Ejecutado el overnight del 2026-05-16 + fixes round 2 del 2026-05-17.
+Detalle en `WORKLOG-2026-05-16-overnight.md`.
+
+1. ✅ **Página `/quotes`** con cotizaciones automáticas (P1)
+2. ✅ **Mejoras en `/today`** (KPIs, agent feed, growth opportunities — P2)
+3. ✅ **Modal "AI decision trace"** (P3)
+4. ✅ **Página `/contracts`** (P4, no estaba en el plan original, agregada)
+5. ✅ **Round 2 de fixes** post visual QA (8 issues + side task — 2026-05-17)

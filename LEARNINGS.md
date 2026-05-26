@@ -177,3 +177,73 @@ cerradas.
   detecta cuál es. Permite URLs compartibles legibles.
 - **`AgentDecision` log con confidence + human override**: estructura ya
   preparada para tracking de calidad de agents.
+
+---
+
+## Reunión Free Customs S.A. — 2026-05-20
+
+Forwarder argentino. Reunión de producto, ~66 min. Temperatura ALTA — señal
+de compra clara, preguntas de implementación (no de descarte).
+
+### Perfil del cliente
+- Equipo forwarding ~15 personas (comercial + pricing + ops)
+- 250-300 operaciones activas simultáneas
+- Modalidad principal: FCL importación desde China
+- Sistemas actuales: Fux (forwarding) + Dux (aduana) — NO se conectan entre
+  sí. Mintec (facturación, inamovible).
+- Reportes a dirección: Excel manual semanal
+
+### Pain points validados (en orden de dolor)
+1. Triple carga de datos — el mismo contenedor se carga 3 veces (forwarding,
+   aduana, logística) porque Fux y Dux no se hablan. El mayor destructor de
+   tiempo.
+2. Overflow de mails — +100 mails diarios, riesgo de perder lo crítico. Caso
+   real: factura USD 2M que activaba seguro casi se pierde.
+3. Reportes manuales a dirección — bug de Fux de 7 meses sin resolver
+   distorsiona números de cash flow.
+4. Cotización de exportación lenta — entrar a 5 webs de navieras. Una expo
+   lleva más que 20 importaciones.
+5. Gestión manual de tarifarios de agentes — tarifas llegan en XLS/mail/web,
+   carga 100% manual.
+6. Validación de gastos por operación — cruce manual entre pricing, agente y
+   marítima. Sin alertas.
+
+### Qué resonó del producto
+- Dashboard unificado / cero carga duplicada — el hit central. Validado por
+  Magali (Gerente Forwarding).
+- Alertas priorizadas por impacto económico — el ejemplo del BL con
+  discrepancia de 350kg resonó fuerte.
+- Cotizador automático — máximo entusiasmo de Franco (Gerente Pricing).
+  Quiere: leer mail del agente, precargar tarifario, comparar con cotizadores
+  online (Merspot, Hapag, WAN), dejar draft listo.
+- Reportes a demanda — "armame un reporte de los últimos 2 meses de
+  operaciones vs cotizaciones".
+- Lectura inteligente de mails/WhatsApp nocturnos de China, ordenado por
+  importancia.
+- Aprendizaje continuo — markup por cliente, tono de cada operador, agentes
+  por ruta.
+
+### Requisitos / restricciones que surgieron
+- Aprobación humana obligatoria antes de enviar cualquier correo — Magali
+  explícita. Rumbo nunca envía solo.
+- Integración Mintec (API de facturación) — pidieron evaluar. Pendiente:
+  solicitar doc de API.
+- Integración AFIP (declaraciones anticipadas) — preguntaron. No incluido
+  hoy, pendiente mapear.
+- Portal cliente embebible en su web — bien recibido. No prioridad, pero
+  tener en cuenta en arquitectura.
+- Impresión de documentos (BL, certificaciones) — abierto, a mapear.
+
+### Próximos pasos comprometidos
+1. Enviar resumen + cotización formal
+2. Solicitar doc API de Mintec
+3. Próxima reunión: demo en vivo con datos reales de Free Customs
+4. Mapear integración AFIP
+
+### Implicancia para producto
+- El paso "demo con datos reales de Free Customs" REQUIERE multi-tenant
+  (Sprint 1). Sprint 1 ahora tiene urgencia de negocio, no solo técnica.
+- El cotizador que quiere Franco es más rico que el /quotes actual: lectura
+  de tarifarios de agentes + cotizadores de exportación. Gap a cubrir post
+  Sprint 1.
+- "Reportes a demanda" es un caso de uso nuevo, no estaba en el roadmap.
