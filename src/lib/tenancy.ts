@@ -32,12 +32,12 @@ const TENANT_MODELS = new Set<string>([
   'timelineEvent',
 ])
 
-function isTenantModel(model: string | undefined): boolean {
+export function isTenantModel(model: string | undefined): boolean {
   if (!model) return false
   return TENANT_MODELS.has(model[0].toLowerCase() + model.slice(1))
 }
 
-function injectWhere(args: any, organizationId: string): any {
+export function injectWhere(args: any, organizationId: string): any {
   if (!args) args = {}
   const existing = args.where ?? {}
   // Si ya tiene organizationId explícito y NO coincide, lanzamos error
@@ -54,7 +54,7 @@ function injectWhere(args: any, organizationId: string): any {
   return { ...args, where: { ...existing, organizationId } }
 }
 
-function injectData(args: any, organizationId: string): any {
+export function injectData(args: any, organizationId: string): any {
   if (!args) args = {}
   const existing = args.data ?? {}
   if (Array.isArray(existing)) {
