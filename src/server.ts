@@ -1,6 +1,8 @@
 import express, { Request, Response, NextFunction } from 'express'
 import cors from 'cors'
 import dotenv from 'dotenv'
+import path from 'path'
+import { fileURLToPath } from 'url'
 import { PrismaClient } from '@prisma/client'
 import jwt from 'jsonwebtoken'
 import bcrypt from 'bcryptjs'
@@ -13,6 +15,9 @@ import contractsRouter from './routes/contracts.js'
 
 dotenv.config()
 
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
+
 const app = express()
 const prisma = new PrismaClient()
 const PORT = process.env.PORT || 3001
@@ -20,6 +25,15 @@ const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-in-prod'
 
 app.use(cors())
 app.use(express.json())
+
+// Static files (attachments for demo: HBL, MBL, Arrival Notice, etc.)
+// __dirname en build apunta a /dist, así que subimos un nivel para llegar a /public.
+app.use('/static', express.static(path.join(__dirname, '..', 'public'), {
+  maxAge: '1h',
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.pdf')) res.setHeader('Content-Type', 'application/pdf')
+  },
+}))
 
 // AI Chat route
 app.use('/api/ai/chat', aiChatRouter)
@@ -89,12 +103,60 @@ app.get('/api/operations/:id', authMiddleware, async (req: AuthRequest, res: Res
         tasks: true,
         journeySteps: { orderBy: { stepNumber: 'asc' } },
         timelineEvents: { orderBy: { timestamp: 'desc' } },
+        attachments: { orderBy: { receivedAt: 'asc' } },
       },
     })
     if (!operation) return res.status(404).json({ error: 'Not found' })
     res.json(operation)
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch' })
+  }
+})
+
+// ============================================================================
+// ATTACHMENTS — list per operation
+// ============================================================================
+// Endpoint público (mismo patrón que /api/quotes y /api/contracts) que devuelve
+// los attachments de una operación + publicUrl construido. Igual que el resto
+// de la API durante el periodo demo, resuelve via demo user.
+
+function buildPublicUrl(req: Request, storedPath: string): string {
+  const base =
+    process.env.PUBLIC_BASE_URL ||
+    `${req.protocol}://${req.get('host')}`
+  return `${base.replace(/\/$/, '')}/static/${storedPath.replace(/^\/+/, '')}`
+}
+
+app.get('/api/operations/:id/attachments', async (req: Request, res: Response) => {
+  try {
+    const demoUser = await prisma.user.findFirst({
+      where: { email: 'demo@example.com' },
+      select: { id: true },
+    })
+    if (!demoUser) return res.status(500).json({ error: 'Demo user not found' })
+
+    const param = req.params.id
+    const isOperationCode = /^OP-/i.test(param)
+    const operation = await prisma.operation.findFirst({
+      where: isOperationCode
+        ? { operationCode: param, userId: demoUser.id }
+        : { id: param, userId: demoUser.id },
+      select: { id: true },
+    })
+    if (!operation) return res.status(404).json({ error: 'Operation not found' })
+
+    const attachments = await prisma.attachment.findMany({
+      where: { operationId: operation.id },
+      orderBy: { receivedAt: 'asc' },
+    })
+
+    res.json(attachments.map((a) => ({
+      ...a,
+      publicUrl: buildPublicUrl(req, a.storedPath),
+    })))
+  } catch (error) {
+    console.error('GET /api/operations/:id/attachments error:', error)
+    res.status(500).json({ error: 'Failed to fetch attachments' })
   }
 })
 

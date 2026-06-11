@@ -64,4 +64,46 @@ router.get('/:id', async (req: Request, res: Response) => {
   }
 });
 
+// ============ GET /api/quotes/:id/attachments ============
+function buildPublicUrl(req: Request, storedPath: string): string {
+  const base =
+    process.env.PUBLIC_BASE_URL ||
+    `${req.protocol}://${req.get('host')}`;
+  return `${base.replace(/\/$/, '')}/static/${storedPath.replace(/^\/+/, '')}`;
+}
+
+router.get('/:id/attachments', async (req: Request, res: Response) => {
+  try {
+    const demoUser = await prisma.user.findFirst({
+      where: { email: DEMO_EMAIL },
+      select: { id: true },
+    });
+    if (!demoUser) return res.status(500).json({ error: 'Demo user not found' });
+
+    const param = req.params.id;
+    const isQuoteCode = /^Q-/i.test(param);
+
+    const quote = await prisma.quote.findFirst({
+      where: isQuoteCode
+        ? { quoteCode: param, userId: demoUser.id }
+        : { id: param, userId: demoUser.id },
+      select: { id: true },
+    });
+    if (!quote) return res.status(404).json({ error: 'Quote not found' });
+
+    const attachments = await prisma.attachment.findMany({
+      where: { quoteId: quote.id },
+      orderBy: { receivedAt: 'asc' },
+    });
+
+    res.json(attachments.map((a) => ({
+      ...a,
+      publicUrl: buildPublicUrl(req, a.storedPath),
+    })));
+  } catch (error) {
+    console.error('GET /api/quotes/:id/attachments error:', error);
+    res.status(500).json({ error: 'Failed to fetch attachments' });
+  }
+});
+
 export default router;
