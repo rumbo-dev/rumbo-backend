@@ -77,7 +77,11 @@ const QUOTE_DATA = {
   clientEmail: 'mcosta@chicparisien.com',
   isNewClient: false,
   channel: 'EMAIL',
-  status: 'CLOSED_WON',
+  // ACCEPTED (no CLOSED_WON) para matchear el enum del frontend
+  // (src/app/quotes/page.tsx STATUS_CONFIG). El frontend solo conoce
+  // WAITING_FOR_DATA | READY_TO_QUOTE | QUOTED_DRAFT | SENT_AWAITING_CLIENT |
+  // ACCEPTED | LOST. Un valor desconocido hace que /quotes crashee.
+  status: 'ACCEPTED',
   receivedAt: new Date('2026-01-29T19:08:00Z'),
   originalMessage:
     'Hola Mauricio, buen día.\n\nNecesitamos cotizar 1x40 HQ desde Ningbo a Buenos Aires, FOB. Carga aprox 458 cartons, 10.812 kg, 68 CBM. Ready date aprox 10 feb. Producto: hair clips. Quedo a la espera de tu propuesta. Saludos, Marcia.',
