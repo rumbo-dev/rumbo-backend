@@ -140,9 +140,12 @@ const QUOTE_DATA = {
       transitDays: 38,
       sailingsPerWeek: 2,
       onTimePct12m: 85,
-      contractRate: 1450,
-      contractRef: 'CTR-MSC-2026-Q2',
-      spotRate: 1600,
+      // Sin contrato vigente con MSC para esta lane al momento de cotizar.
+      // El precio efectivo es spot (USD 1450). El contrato CTR-MSC-2026-Q2
+      // se firmó tiempo después y es de Andes Trading, no de Chic Parisien.
+      contractRate: null,
+      contractRef: null,
+      spotRate: 1450,
       yourFinalCost: 1450,
       status: 'Acepta IMO Class 9',
     },
