@@ -16,4 +16,5 @@ scripts/*
 !scripts/seed-contracts.ts
 !scripts/fix-op-0184.ts
 !scripts/seed-murchison-op.ts
+!scripts/seed-murchison-versions.ts
 .env.production

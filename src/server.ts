@@ -81,8 +81,16 @@ app.get('/api/operations', authMiddleware, async (req: AuthRequest, res: Respons
   try {
     const operations = await prisma.operation.findMany({
       where: { userId: req.userId },
-      include: { tasks: true, journeySteps: true },
-      orderBy: { createdAt: 'desc' },
+      include: {
+        tasks: true,
+        journeySteps: true,
+        suggestedTasks: {
+          where: { status: 'pending' },
+          select: { id: true, priority: true, title: true, type: true, isInformational: true },
+          orderBy: { sortOrder: 'asc' },
+        },
+      },
+      orderBy: { updatedAt: 'desc' },
     })
     res.json(operations)
   } catch (error) {
@@ -157,6 +165,52 @@ app.get('/api/operations/:id/attachments', async (req: Request, res: Response) =
   } catch (error) {
     console.error('GET /api/operations/:id/attachments error:', error)
     res.status(500).json({ error: 'Failed to fetch attachments' })
+  }
+})
+
+// GET /api/operations/:id/suggested-tasks
+// Devuelve las suggested tasks pendientes de la op, con attachments completos
+// (resolviendo attachmentIds[] a los Attachment records con publicUrl).
+app.get('/api/operations/:id/suggested-tasks', async (req: Request, res: Response) => {
+  try {
+    const demoUser = await prisma.user.findFirst({
+      where: { email: 'demo@example.com' },
+      select: { id: true },
+    })
+    if (!demoUser) return res.status(500).json({ error: 'Demo user not found' })
+
+    const param = req.params.id
+    const isOperationCode = /^OP-/i.test(param)
+    const operation = await prisma.operation.findFirst({
+      where: isOperationCode
+        ? { operationCode: param, userId: demoUser.id }
+        : { id: param, userId: demoUser.id },
+      select: { id: true },
+    })
+    if (!operation) return res.status(404).json({ error: 'Operation not found' })
+
+    const tasks = await prisma.suggestedTask.findMany({
+      where: { operationId: operation.id, status: 'pending' },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+    })
+
+    // Resolver attachments por sus IDs (planas a través de todas las tasks)
+    const allAttIds = Array.from(new Set(tasks.flatMap((t) => t.attachmentIds)))
+    const attachments = allAttIds.length > 0
+      ? await prisma.attachment.findMany({ where: { id: { in: allAttIds } } })
+      : []
+    const attById: Record<string, any> = {}
+    for (const a of attachments) {
+      attById[a.id] = { ...a, publicUrl: buildPublicUrl(req, a.storedPath) }
+    }
+
+    res.json(tasks.map((t) => ({
+      ...t,
+      attachments: t.attachmentIds.map((id) => attById[id]).filter(Boolean),
+    })))
+  } catch (error) {
+    console.error('GET /api/operations/:id/suggested-tasks error:', error)
+    res.status(500).json({ error: 'Failed to fetch suggested tasks' })
   }
 })
 

@@ -173,6 +173,7 @@ model Operation {
   emailDrafts          EmailDraft[]
   agentDecisions       AgentDecision[]
   attachments          Attachment[]
+  suggestedTasks       SuggestedTask[]
 
   @@index([userId])
   @@index([status])
@@ -541,6 +542,57 @@ model Attachment {
   @@index([operationId])
   @@index([quoteId])
   @@index([documentType])
+}
+
+// ============================================================================
+// SUGGESTED TASK — Acciones que los agentes sugieren para una operación
+// ============================================================================
+// Diferente de Task (deuda task histórica), SuggestedTask vive en el panel
+// "Tareas sugeridas" de /operations/[id]. Cada una tiene priority + type
+// (agent que la generó) + opcionalmente un draft completo (subject + to +
+// cc + body) + opcionalmente attachments adjuntos al draft.
+
+model SuggestedTask {
+  id                String    @id @default(cuid())
+  operationId       String
+  operation         Operation @relation(fields: [operationId], references: [id], onDelete: Cascade)
+
+  // ===== CLASSIFICATION =====
+  type              String    // REPLY | QUOTE | WATCH | CLEAR | READ | RANK | GROWTH
+  priority          String    // urgent | high | medium | low
+  agentSource       String?   // alias del type para tracking (REPLY/QUOTE/etc.)
+  isInformational   Boolean   @default(false)
+
+  // ===== CONTENT =====
+  title             String
+  description       String?   @db.Text
+
+  // ===== DRAFT (opcional) =====
+  draftSubject      String?
+  draftTo           String?
+  draftCc           String?
+  draftBody         String?   @db.Text
+
+  // ===== ACTION CTA (cuando no hay draft) =====
+  actionLabel       String?
+
+  // ===== AI METADATA =====
+  confidence        Int?
+
+  // ===== ATTACHMENTS adjuntos al draft =====
+  attachmentIds     String[]
+
+  // ===== STATUS =====
+  status            String    @default("pending")  // pending | approved | dismissed
+
+  // ===== TIMESTAMPS =====
+  sortOrder         Int       @default(0)  // para mantener orden estable dentro de una op
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([operationId])
+  @@index([operationId, status])
+  @@index([priority])
 }
 
 // ============================================================================
