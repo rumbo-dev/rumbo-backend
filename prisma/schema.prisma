@@ -145,6 +145,26 @@ model Operation {
   criticalImpact       String?   // frase del impacto mostrada en el feed
   exposureUsd          Float?    // exposición financiera en USD (penalty, multa, riesgo)
   
+  // ========== STAKEHOLDERS (Murchison demo) ==========
+  // JSON con array de actores reales de la operación:
+  // [{ name, email, company, role, isPrimary }]
+  stakeholders         Json?
+
+  // ========== EXTRA FIELDS (Murchison demo, aditivos) ==========
+  // Campos opcionales para representar operaciones reales que tienen más detalle
+  // del que el schema básico soporta. Aditivos — single-tenant, opt-in.
+  finalConsignee       String?   // ej. "Badonel SA" (consignee real vs B/L consignee)
+  portOrigin           String?   // ISO ej. "CN-NGB" (complementa originPort que es libre)
+  portDestination      String?   // ISO ej. "AR-BUE"
+  containerNumbers     String?   // CSV de containers múltiples ej. "FFAU4271913, FX46436623"
+  hblNumbers           String?   // CSV de HBL numbers (operaciones pueden tener varios HBL)
+  mblNumber            String?   // separado del blNumber existente (que se mantiene compat)
+  cartons              Int?      // cantidad de bultos
+  cargoDescription     String?
+  imoClass             String?   // ej. "9" (li-battery)
+  etdOrigin            DateTime?
+  etaDestination       DateTime?
+
   // ========== RELATIONS ==========
   tasks                Task[]
   journeySteps         JourneyStep[]
@@ -152,7 +172,8 @@ model Operation {
   emailsInbound        EmailInbound[]
   emailDrafts          EmailDraft[]
   agentDecisions       AgentDecision[]
-  
+  attachments          Attachment[]
+
   @@index([userId])
   @@index([status])
   @@index([currentOwner])
@@ -487,9 +508,39 @@ model Quote {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
+  // ========== RELATIONS ==========
+  attachments      Attachment[]
+
   @@index([userId])
   @@index([status])
   @@index([receivedAt])
+}
+
+// ============================================================================
+// ATTACHMENT — Documentos asociados a Operations o Quotes
+// ============================================================================
+// Los archivos físicos viven en public/attachments/<scope>/ y se sirven via
+// /static/. Este modelo es solo el metadata para listarlos y mostrar tipos.
+
+model Attachment {
+  id            String     @id @default(cuid())
+  filename      String     // nombre visible original
+  storedPath    String     // ej. "attachments/OP-024-026/HBL_NGBS076774_DRAFT.pdf"
+  mimeType      String
+  sizeBytes     Int
+  documentType  String?    // HBL_DRAFT | MBL_DRAFT | BL_TLX_RELEASE | ARRIVAL_NOTICE | DEBIT_NOTE | GUARANTEE | OTHER
+  description   String?
+  source        String?    // agent_origin | carrier | customer | destination_agent | forwarder
+  receivedAt    DateTime?
+  operationId   String?
+  quoteId       String?
+  operation     Operation? @relation(fields: [operationId], references: [id], onDelete: Cascade)
+  quote         Quote?     @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  createdAt     DateTime   @default(now())
+
+  @@index([operationId])
+  @@index([quoteId])
+  @@index([documentType])
 }
 
 // ============================================================================
